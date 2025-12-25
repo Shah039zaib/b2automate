@@ -1,0 +1,156 @@
+# ============================================
+# B2Automate Production Docker Compose
+# ============================================
+# Oracle Cloud Always Free VM (1 GB RAM, 1 OCPU)
+# 
+# Memory Budget:
+#   - api: 300 MB
+#   - worker: 300 MB  
+#   - redis: 100 MB
+#   - nginx: 50 MB
+#   - TOTAL: 750 MB (250 MB reserved for OS)
+# ============================================
+
+services:
+  # ============================================
+  # API Server (Fastify + BullMQ Producer)
+  # ============================================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: b2automate-api
+    restart: unless-stopped
+    mem_limit: 300m
+    memswap_limit: 300m
+    environment:
+      - NODE_ENV=production
+      - NODE_OPTIONS=--max-old-space-size=256
+      - PORT=3000
+      - DATABASE_URL=${DATABASE_URL}
+      - DIRECT_URL=${DIRECT_URL}
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_ACCESS_EXPIRY=${JWT_ACCESS_EXPIRY:-15m}
+      - JWT_REFRESH_EXPIRY=${JWT_REFRESH_EXPIRY:-7d}
+      - AI_PROVIDER=${AI_PROVIDER:-mock}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-google/gemini-2.0-flash-exp:free}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
+      - STRIPE_PUBLISHABLE_KEY=${STRIPE_PUBLISHABLE_KEY:-}
+      - WEB_APP_URL=${WEB_APP_URL:-http://localhost}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - RATE_LIMIT_MAX=${RATE_LIMIT_MAX:-100}
+      - RATE_LIMIT_WINDOW=${RATE_LIMIT_WINDOW:-1 minute}
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - b2automate-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # WhatsApp Worker (BullMQ Consumer + Baileys)
+  # ============================================
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: b2automate-worker
+    restart: unless-stopped
+    mem_limit: 300m
+    memswap_limit: 300m
+    environment:
+      - NODE_ENV=production
+      - NODE_OPTIONS=--max-old-space-size=256
+      - REDIS_URL=redis://redis:6379
+      - WHATSAPP_MESSAGE_RATE_LIMIT=${WHATSAPP_MESSAGE_RATE_LIMIT:-5}
+      - WHATSAPP_CUSTOMER_RATE_LIMIT=${WHATSAPP_CUSTOMER_RATE_LIMIT:-10}
+      - WHATSAPP_CUSTOMER_RATE_WINDOW=${WHATSAPP_CUSTOMER_RATE_WINDOW:-60}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - b2automate-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # Redis (BullMQ Queue Storage)
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: b2automate-redis
+    restart: unless-stopped
+    mem_limit: 100m
+    memswap_limit: 100m
+    command: >
+      redis-server
+      --maxmemory 80mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --appendfsync everysec
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - b2automate-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # ============================================
+  # Nginx (Reverse Proxy + Static Files)
+  # ============================================
+  nginx:
+    image: nginx:alpine
+    container_name: b2automate-nginx
+    restart: unless-stopped
+    mem_limit: 50m
+    memswap_limit: 50m
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./apps/web/dist:/var/www/web:ro
+      - ./apps/admin/dist:/var/www/admin:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - api
+    networks:
+      - b2automate-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+networks:
+  b2automate-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+    driver: local
