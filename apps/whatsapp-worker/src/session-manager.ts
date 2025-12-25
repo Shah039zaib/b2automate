@@ -1,17 +1,26 @@
 import makeWASocket, {
-    useMultiFileAuthState,
     DisconnectReason,
     ConnectionState,
     WASocket
 } from '@whiskeysockets/baileys';
 import { logger } from '@b2automate/logger';
 import Redis from 'ioredis';
-import * as fs from 'fs';
-import * as path from 'path';
 import { Boom } from '@hapi/boom';
 import { Queue } from 'bullmq';
-import { QUEUE_NAMES, InboundEventPayload } from '@b2automate/shared-types';
+import { InboundEventPayload } from '@b2automate/shared-types';
+import { useRedisAuthState, clearRedisAuthState } from './redis-auth-state';
 
+/**
+ * SessionManager with Redis-based auth state storage
+ * 
+ * HORIZONTAL SCALING SUPPORT:
+ * - Auth credentials stored in Redis (shared across instances)
+ * - Session sockets stored in local Map (instance-specific)
+ * - Each worker instance handles its own assigned tenants via BullMQ
+ * 
+ * For true horizontal scaling, use BullMQ's job distribution to assign
+ * different tenants to different worker instances.
+ */
 export class SessionManager {
     private sessions: Map<string, WASocket> = new Map();
     private redis: Redis;
@@ -22,21 +31,63 @@ export class SessionManager {
         this.inboundQueue = inboundQueue;
     }
 
+    /**
+     * Check if a session is being handled by ANY worker instance
+     */
+    async isSessionActive(tenantId: string): Promise<boolean> {
+        const status = await this.redis.get(`whatsapp:status:${tenantId}`);
+        return status === 'CONNECTED' || status === 'CONNECTING';
+    }
+
+    /**
+     * Claim a session for this worker instance
+     * Returns false if already claimed by another instance
+     */
+    async claimSession(tenantId: string, instanceId: string, ttlSeconds: number = 60): Promise<boolean> {
+        const key = `whatsapp:claim:${tenantId}`;
+        // Use SET NX EX for atomic claim with expiry
+        const result = await this.redis.set(key, instanceId, 'EX', ttlSeconds, 'NX');
+        if (result === 'OK') {
+            return true;
+        }
+        // Check if we already own it
+        const currentOwner = await this.redis.get(key);
+        return currentOwner === instanceId;
+    }
+
+    /**
+     * Renew the claim on a session (heartbeat)
+     */
+    async renewClaim(tenantId: string, instanceId: string, ttlSeconds: number = 60): Promise<void> {
+        const key = `whatsapp:claim:${tenantId}`;
+        const currentOwner = await this.redis.get(key);
+        if (currentOwner === instanceId) {
+            await this.redis.expire(key, ttlSeconds);
+        }
+    }
+
+    /**
+     * Release claim on a session
+     */
+    async releaseClaim(tenantId: string, instanceId: string): Promise<void> {
+        const key = `whatsapp:claim:${tenantId}`;
+        const currentOwner = await this.redis.get(key);
+        if (currentOwner === instanceId) {
+            await this.redis.del(key);
+        }
+    }
+
     async startSession(tenantId: string) {
         if (this.sessions.has(tenantId)) {
-            logger.info({ tenantId }, 'Session already active in memory');
+            logger.info({ tenantId }, 'Session already active in this instance');
             return;
         }
 
-        logger.info({ tenantId }, 'Initializing session...');
+        logger.info({ tenantId }, 'Initializing session with Redis auth state...');
+        await this.redis.set(`whatsapp:status:${tenantId}`, 'CONNECTING');
 
-        // Ensure auth directory exists
-        const authPath = path.join(process.cwd(), 'sessions', tenantId);
-        if (!fs.existsSync(authPath)) {
-            fs.mkdirSync(authPath, { recursive: true });
-        }
-
-        const { state, saveCreds } = await useMultiFileAuthState(authPath);
+        // Use Redis-based auth state (enables horizontal scaling)
+        const { state, saveCreds } = await useRedisAuthState(this.redis, tenantId);
 
         const sock = makeWASocket({
             auth: state,
@@ -72,7 +123,12 @@ export class SessionManager {
                 await this.redis.set(`whatsapp:status:${tenantId}`, 'DISCONNECTED');
 
                 if (shouldReconnect) {
-                    setTimeout(() => this.startSession(tenantId), 5000);
+                    // SAFETY: Wrap async reconnect in try/catch to prevent silent crashes
+                    setTimeout(() => {
+                        this.startSession(tenantId).catch((err) => {
+                            logger.error({ tenantId, err }, 'Failed to reconnect session');
+                        });
+                    }, 5000);
                 } else {
                     await this.cleanupSession(tenantId);
                 }
@@ -88,10 +144,58 @@ export class SessionManager {
             // Push to Queue for API to process
             for (const msg of m.messages) {
                 if (!msg.key.fromMe) { // Only inbound
+                    // ============================================
+                    // Seen Status: Send read receipt
+                    // ============================================
+                    try {
+                        // Small delay before marking as read (human-like)
+                        const readDelay = Math.random() * 2000 + 1000; // 1-3 seconds
+                        setTimeout(async () => {
+                            try {
+                                await sock.readMessages([msg.key]);
+                                logger.debug({ tenantId, msgId: msg.key.id }, 'Message marked as read');
+                            } catch (readErr) {
+                                // Ignore read receipt errors
+                                logger.debug({ tenantId, error: readErr }, 'Failed to send read receipt');
+                            }
+                        }, readDelay);
+                    } catch {
+                        // Ignore
+                    }
+
+                    // ============================================
+                    // Media Processing (non-blocking)
+                    // Download and store incoming media files
+                    // ============================================
+                    let mediaData: { mediaUrl?: string; mimeType?: string; fileSize?: number; mediaKey?: string } = {};
+                    try {
+                        const { hasMedia, processIncomingMedia } = await import('./media-handler.js');
+                        if (hasMedia(msg)) {
+                            const messageId = msg.key.id || `msg_${Date.now()}`;
+                            const result = await processIncomingMedia(sock, tenantId, messageId, msg);
+                            if (result.success) {
+                                mediaData = {
+                                    mediaUrl: result.mediaUrl,
+                                    mimeType: result.mimeType,
+                                    fileSize: result.fileSize,
+                                    mediaKey: result.mediaKey
+                                };
+                                logger.info({ tenantId, messageId, mediaKey: result.mediaKey }, 'Media processed successfully');
+                            }
+                        }
+                    } catch (mediaErr) {
+                        // Media processing failure should NOT block message processing
+                        logger.warn({ tenantId, msgId: msg.key.id, err: mediaErr }, 'Media processing failed - continuing without media');
+                    }
+
                     this.inboundQueue.add('message', {
                         tenantId,
                         event: 'message',
-                        data: msg
+                        data: {
+                            ...msg,
+                            // Attach media metadata if processed
+                            _mediaData: mediaData
+                        }
                     });
                 }
             }
@@ -104,12 +208,27 @@ export class SessionManager {
         return this.sessions.get(tenantId);
     }
 
-    async cleanupSession(tenantId: string) {
-        const authPath = path.join(process.cwd(), 'sessions', tenantId);
-        if (fs.existsSync(authPath)) {
-            fs.rmSync(authPath, { recursive: true, force: true });
+    async stopSession(tenantId: string): Promise<void> {
+        const sock = this.sessions.get(tenantId);
+        if (sock) {
+            sock.end(undefined);
+            this.sessions.delete(tenantId);
+            await this.redis.set(`whatsapp:status:${tenantId}`, 'DISCONNECTED');
         }
+    }
+
+    async cleanupSession(tenantId: string) {
+        // Clear Redis auth state (not file-based anymore)
+        await clearRedisAuthState(this.redis, tenantId);
         await this.redis.del(`whatsapp:status:${tenantId}`);
         await this.redis.del(`whatsapp:qr:${tenantId}`);
+        await this.redis.del(`whatsapp:claim:${tenantId}`);
+    }
+
+    /**
+     * Get all active sessions in this instance
+     */
+    getActiveSessions(): string[] {
+        return Array.from(this.sessions.keys());
     }
 }

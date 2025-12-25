@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL") // Required for Supabase with connection pooler
 }
 
 enum UserRole {
@@ -19,6 +20,21 @@ enum TenantStatus {
   ARCHIVED
 }
 
+// AI Governance Enums
+enum AiPlan {
+  FREE
+  PAID_BASIC
+  PAID_PRO
+  ENTERPRISE
+}
+
+enum AiTier {
+  FREE
+  LOW
+  MEDIUM
+  HIGH
+}
+
 model Tenant {
   id        String       @id @default(uuid())
   name      String
@@ -26,14 +42,41 @@ model Tenant {
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
   
+  // Business Profile
+  businessPhone       String?
+  businessAddress     String?
+  businessDescription String?
+  
   // Security / Kill Switches
   isAiEnabled       Boolean @default(true)
   isWhatsappEnabled Boolean @default(true)
+  
+  // AI Governance (Super Admin controlled)
+  aiPlan            AiPlan  @default(FREE)
+  aiTier            AiTier  @default(FREE)
+  aiDailyLimit      Int     @default(50)
+  aiMonthlyLimit    Int     @default(1000)
+  aiCustomModel     String? // Override model (Enterprise only)
+  
+  // AI Usage Counters (reset by cron)
+  aiDailyUsage      Int      @default(0)
+  aiMonthlyUsage    Int      @default(0)
+  aiUsageResetAt    DateTime @default(now())
 
-  users     User[]
-  services  Service[]
-  auditLogs AuditLog[]
-  orders    Order[]
+  // Stripe Billing
+  stripeCustomerId  String?
+
+  users         User[]
+  services      Service[]
+  auditLogs     AuditLog[]
+  orders        Order[]
+  workingHours  WorkingHours[]
+  conversations Conversation[]
+  aiUsageLogs   AiUsageLog[]
+  subscription  Subscription?
+  manualPayments ManualPayment[]
+  scheduledMessages ScheduledMessage[]
+  messageTemplates  MessageTemplate[]
 
   @@map("tenants")
 }
@@ -47,9 +90,19 @@ model User {
   tenantId     String
   tenant       Tenant   @relation(fields: [tenantId], references: [id])
   
+  // Password Reset (optional, single-use token)
+  passwordResetToken  String?   @unique
+  passwordResetExpiry DateTime?
+  
+  // Email Verification (optional, disabled by default)
+  emailVerified           Boolean   @default(false)
+  emailVerificationToken  String?   @unique
+  emailVerificationExpiry DateTime?
+  
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   auditLogs    AuditLog[]
+  assignedConversations Conversation[]
 
   @@index([tenantId])
   @@map("users")
@@ -136,4 +189,413 @@ enum OrderStatus {
   REJECTED
   CANCELLED
   COMPLETED
+}
+
+model WorkingHours {
+  id        String  @id @default(uuid())
+  tenantId  String
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  dayOfWeek Int     // 0=Sunday, 1=Monday, ..., 6=Saturday
+  openTime  String  // "09:00" format (HH:mm)
+  closeTime String  // "18:00" format (HH:mm)
+  isClosed  Boolean @default(false)
+
+  @@unique([tenantId, dayOfWeek])
+  @@index([tenantId])
+  @@map("working_hours")
+}
+
+// WhatsApp Conversation model
+model Conversation {
+  id            String   @id @default(uuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  customerJid   String   // WhatsApp JID (e.g., "1234567890@s.whatsapp.net")
+  customerName  String?  // Extracted or provided name
+  customerPhone String?  // Extracted phone number
+  customerEmail String?  // Extracted email
+  
+  status        ConversationStatus @default(OPEN)
+  assignedTo    String?  // User ID of assigned staff
+  assignedUser  User?    @relation(fields: [assignedTo], references: [id])
+  
+  lastMessageAt DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  messages      Message[]
+
+  @@unique([tenantId, customerJid])
+  @@index([tenantId])
+  @@index([status])
+  @@map("conversations")
+}
+
+// WhatsApp Message model
+model Message {
+  id             String   @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  
+  direction      MessageDirection // INBOUND, OUTBOUND
+  type           MessageType      // TEXT, IMAGE, AUDIO, DOCUMENT
+  content        String           // Text content or media caption
+  
+  // Media Storage (for IMAGE, AUDIO, DOCUMENT types)
+  mediaUrl       String?          // Signed URL to cloud storage
+  mimeType       String?          // e.g., "image/jpeg", "application/pdf"
+  fileSize       Int?             // Size in bytes
+  mediaKey       String?          // Storage path key (tenantId/messageId/filename)
+  
+  isFromAi       Boolean  @default(false)
+  aiConfidence   Float?   // Confidence score if AI responded
+  
+  timestamp      DateTime @default(now())
+
+  @@index([conversationId])
+  @@map("messages")
+}
+
+enum ConversationStatus {
+  OPEN
+  ASSIGNED
+  RESOLVED
+  CLOSED
+}
+
+enum MessageDirection {
+  INBOUND   // From customer
+  OUTBOUND  // To customer
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  AUDIO
+  DOCUMENT
+}
+
+// AI Usage Log (for detailed tracking and billing)
+model AiUsageLog {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  model       String   // Model used (e.g., "google/gemini-2.0-flash-exp:free")
+  tier        AiTier   // Tier at time of request
+  inputTokens Int?     // Input tokens (if available)
+  outputTokens Int?    // Output tokens (if available)
+  cost        Decimal? @db.Decimal(10, 6) // Estimated cost in USD
+  
+  wasBlocked  Boolean  @default(false)
+  blockReason String?  // LIMIT_EXCEEDED, MODEL_NOT_ALLOWED, GLOBAL_AI_DISABLED, etc.
+  
+  timestamp   DateTime @default(now())
+  
+  @@index([tenantId])
+  @@index([timestamp])
+  @@index([wasBlocked])
+  @@map("ai_usage_logs")
+}
+
+// System-wide settings (Super Admin)
+model SystemSettings {
+  id        String  @id @default("system")
+  
+  // Global Kill Switches
+  globalAiEnabled       Boolean @default(true)
+  globalWhatsappEnabled Boolean @default(true)
+  
+  // AI Configuration
+  defaultAiProvider     String  @default("mock")  // "mock", "openai"
+  openaiApiKey          String? // Encrypted in production
+  
+  // Usage Limits
+  maxTenantsAllowed     Int     @default(100)
+  maxMessagesPerHour    Int     @default(1000)
+  
+  // ============================================
+  // EMAIL SYSTEM (ALL OFF BY DEFAULT)
+  // ============================================
+  
+  // Master Email Toggle
+  emailEnabled              Boolean @default(false)
+  
+  // Feature Toggles
+  emailVerificationRequired Boolean @default(false) // Require email verification on signup
+  passwordResetEnabled      Boolean @default(false) // Allow password reset emails
+  paymentEmailsEnabled      Boolean @default(false) // Send payment confirmations
+  
+  // Provider Configuration (optional until enabled)
+  emailProvider             String  @default("none") // "none", "smtp", "resend", "ses"
+  smtpHost                  String?
+  smtpPort                  Int?
+  smtpUser                  String?
+  smtpPass                  String? // Encrypted in production
+  resendApiKey              String?
+  
+  updatedAt             DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+// ============================================
+// STRIPE BILLING MODELS
+// ============================================
+
+enum SubscriptionStatus {
+  INCOMPLETE           // Checkout started but not completed
+  INCOMPLETE_EXPIRED   // Checkout session expired
+  TRIALING             // In trial period
+  ACTIVE               // Paid and active
+  PAST_DUE             // Payment failed, grace period
+  CANCELED             // Subscription canceled
+  UNPAID               // Multiple payment failures
+}
+
+// Super Admin managed subscription plans
+model SubscriptionPlan {
+  id          String   @id @default(uuid())
+  
+  // Display Info
+  name        String   // "Free", "Basic", "Pro", "Enterprise"
+  description String?
+  
+  // Stripe Integration (REQUIRED)
+  stripeProductId String  // prod_xxx from Stripe Dashboard
+  stripePriceId   String  @unique // price_xxx from Stripe Dashboard
+  
+  // AI Governance Mapping
+  aiPlan         AiPlan
+  aiTier         AiTier
+  aiDailyLimit   Int
+  aiMonthlyLimit Int
+  
+  // Pricing Display (cached from Stripe, for UI)
+  priceAmount    Int      // Amount in cents (e.g., 4900 = $49)
+  priceCurrency  String   @default("usd")
+  priceInterval  String   @default("month") // "month" or "year"
+  
+  // Status
+  isActive     Boolean  @default(true) // Soft delete
+  displayOrder Int      @default(0)    // Sort order on pricing page
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  subscriptions  Subscription[]
+  manualPayments ManualPayment[]
+  
+  @@map("subscription_plans")
+}
+
+// Tenant subscription (ONE per tenant)
+model Subscription {
+  id          String   @id @default(uuid())
+  
+  // Tenant Link (1:1)
+  tenantId    String   @unique
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  // Plan Link
+  planId      String
+  plan        SubscriptionPlan @relation(fields: [planId], references: [id])
+  
+  // Stripe IDs (Source of Truth)
+  stripeCustomerId      String
+  stripeSubscriptionId  String  @unique
+  
+  // Status (synced from Stripe webhooks)
+  status      SubscriptionStatus @default(INCOMPLETE)
+  
+  // Billing Period (synced from Stripe)
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  
+  // Cancellation
+  cancelAtPeriodEnd Boolean   @default(false)
+  canceledAt        DateTime?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([stripeCustomerId])
+  @@index([stripeSubscriptionId])
+  @@map("subscriptions")
+}
+
+// Stripe Webhook Event Log (for idempotency)
+model StripeWebhookEvent {
+  id          String   @id // Stripe event ID (evt_xxx)
+  type        String   // Event type (e.g., "checkout.session.completed")
+  processedAt DateTime @default(now())
+  
+  @@map("stripe_webhook_events")
+}
+
+// ============================================
+// Growth & Marketing Settings (Platform-Wide)
+// ============================================
+
+enum CouponType {
+  PERCENTAGE
+  FIXED
+}
+
+// Single global row for platform settings
+model GrowthSettings {
+  id                  String   @id @default(uuid())
+
+  // Google Analytics
+  gaEnabled           Boolean  @default(false)
+  gaMeasurementId     String?
+
+  // Facebook/Meta Pixel
+  fbPixelEnabled      Boolean  @default(false)
+  fbPixelId           String?
+
+  // Coupon Banner
+  couponEnabled       Boolean  @default(false)
+  couponCode          String?
+  couponType          CouponType?
+  couponValue         Int?     // Percentage (0-100) or cents for fixed
+  couponMessage       String?  // Custom banner message
+  couponExpiresAt     DateTime?
+  couponStripeCouponId String? // Must match Stripe coupon for checkout
+
+  // Meta
+  updatedBy           String?  // User ID who last updated
+  updatedAt           DateTime @updatedAt
+
+  @@map("growth_settings")
+}
+
+// ============================================
+// Manual Payments (EasyPaisa, JazzCash, Bank)
+// ============================================
+
+enum ManualPaymentMethod {
+  EASYPAISA
+  JAZZCASH
+  BANK_TRANSFER
+}
+
+enum ManualPaymentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model ManualPayment {
+  id            String   @id @default(uuid())
+
+  // Tenant Link
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Plan Link
+  planId        String
+  plan          SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  // Payment Details
+  method        ManualPaymentMethod
+  senderName    String
+  senderNumber  String?   // Phone or bank account number
+  reference     String?   // Transaction reference
+  screenshotUrl String    // Required proof of payment
+
+  // Pricing
+  couponCode    String?
+  originalPrice Int       // In cents
+  finalPrice    Int       // After discount, in cents
+
+  // Status
+  status        ManualPaymentStatus @default(PENDING)
+
+  // Review
+  reviewedBy    String?   // Super Admin user ID
+  reviewerNote  String?   // Optional note from reviewer
+  reviewedAt    DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([status])
+  @@map("manual_payments")
+}
+
+// ============================================
+// PHASE 6B: SCHEDULED MESSAGES
+// ============================================
+
+model ScheduledMessage {
+  id              String   @id @default(uuid())
+  
+  // Tenant Isolation
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  // Recipient
+  recipientPhone  String   // Phone number (will be converted to JID)
+  
+  // Message Content
+  messageText     String
+  templateId      String?  // Optional reference to template
+  template        MessageTemplate? @relation(fields: [templateId], references: [id])
+  
+  // Scheduling
+  scheduledAt     DateTime
+  
+  // Status
+  status          ScheduledMessageStatus @default(PENDING)
+  retryCount      Int     @default(0)
+  lastError       String?
+  sentAt          DateTime?
+  
+  // Audit
+  createdBy       String  // User ID who created
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([tenantId])
+  @@index([status, scheduledAt])
+  @@map("scheduled_messages")
+}
+
+enum ScheduledMessageStatus {
+  PENDING
+  SENT
+  FAILED
+  CANCELED
+}
+
+// ============================================
+// PHASE 6B: MESSAGE TEMPLATES
+// ============================================
+
+model MessageTemplate {
+  id          String   @id @default(uuid())
+  
+  // Tenant Isolation
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  // Template Content
+  name        String
+  content     String   // Supports {{variable}} syntax
+  variables   String[] // List of variable names
+  
+  // Audit
+  createdBy   String   // User ID who created
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Usage
+  scheduledMessages ScheduledMessage[]
+  
+  @@unique([tenantId, name]) // Template name unique per tenant
+  @@index([tenantId])
+  @@map("message_templates")
 }

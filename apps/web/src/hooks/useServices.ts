@@ -39,4 +39,19 @@ export function useUpdateService() {
     });
 }
 
+export function useDeleteService() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (id: string) => {
+            const response = await servicesApi.delete(id);
+            return response.data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['services'] });
+        },
+    });
+}
+
 export type { Service };
+

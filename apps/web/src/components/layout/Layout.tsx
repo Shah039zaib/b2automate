@@ -7,8 +7,12 @@ import {
     LogOut,
     Menu,
     X,
-    Zap,
-    Box
+    Box,
+    Settings,
+    Users,
+    BarChart3,
+    Inbox,
+    CreditCard
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { clsx } from 'clsx';
@@ -18,11 +22,18 @@ interface LayoutProps {
     children: ReactNode;
 }
 
+// Pages that require TENANT_ADMIN or higher (hidden from STAFF)
+const ADMIN_ONLY_PATHS = ['/settings', '/billing', '/team'];
+
 const NAV_ITEMS = [
     { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
     { label: 'Services', icon: Box, path: '/services' },
     { label: 'Orders', icon: ShoppingBag, path: '/orders' },
-    { label: 'Onboarding', icon: Zap, path: '/onboarding', adminOnly: true },
+    { label: 'Inbox', icon: Inbox, path: '/inbox' },
+    { label: 'Analytics', icon: BarChart3, path: '/analytics' },
+    { label: 'Team', icon: Users, path: '/team' },
+    { label: 'Billing', icon: CreditCard, path: '/billing' },
+    { label: 'Settings', icon: Settings, path: '/settings' },
 ];
 
 export function Layout({ children }: LayoutProps) {
@@ -35,13 +46,10 @@ export function Layout({ children }: LayoutProps) {
         ? user.email.split('@')[0].slice(0, 2).toUpperCase()
         : 'U';
 
-    // Filter nav items based on role
-    const filteredNavItems = NAV_ITEMS.filter(item => {
-        if (item.adminOnly && user?.role === 'STAFF') {
-            return false;
-        }
-        return true;
-    });
+    // SECURITY: Filter nav items based on role - STAFF cannot see admin pages
+    const filteredNavItems = user?.role === 'STAFF'
+        ? NAV_ITEMS.filter(item => !ADMIN_ONLY_PATHS.includes(item.path))
+        : NAV_ITEMS;
 
     return (
         <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">

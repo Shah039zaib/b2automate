@@ -6,7 +6,7 @@ import { Input } from '../components/ui/Input';
 import { EmptyState } from '../components/ui/EmptyState';
 import { SkeletonTable } from '../components/ui/Skeleton';
 import { Upload, Plus, Edit2, Trash2, X, Box, Check, AlertCircle } from 'lucide-react';
-import { useServices, useCreateService, useUpdateService, Service } from '../hooks/useServices';
+import { useServices, useCreateService, useUpdateService, useDeleteService, Service } from '../hooks/useServices';
 
 export function Services() {
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -22,6 +22,7 @@ export function Services() {
     const { data: services, isLoading, isError } = useServices();
     const createService = useCreateService();
     const updateService = useUpdateService();
+    const deleteService = useDeleteService();
 
     const openCreateModal = () => {
         setEditingService(null);
@@ -100,7 +101,22 @@ export function Services() {
         }
     };
 
-    const isSaving = createService.isPending || updateService.isPending;
+    const handleDelete = async (service: Service) => {
+        if (!confirm(`Are you sure you want to delete "${service.name}"?`)) return;
+
+        try {
+            const result = await deleteService.mutateAsync(service.id);
+            if (result.softDeleted) {
+                showSuccess('Service deactivated (has existing orders)');
+            } else {
+                showSuccess('Service deleted successfully');
+            }
+        } catch (err: any) {
+            setError(err.response?.data?.error || 'Failed to delete service');
+        }
+    };
+
+    const isSaving = createService.isPending || updateService.isPending || deleteService.isPending;
 
     return (
         <div className="space-y-6">
@@ -177,9 +193,9 @@ export function Services() {
                                             <Edit2 className="w-4 h-4" />
                                         </button>
                                         <button
-                                            onClick={() => handleToggleActive(service)}
+                                            onClick={() => handleDelete(service)}
                                             className="text-slate-400 hover:text-red-600"
-                                            title={service.isActive ? 'Deactivate' : 'Activate'}
+                                            title="Delete service"
                                         >
                                             <Trash2 className="w-4 h-4" />
                                         </button>

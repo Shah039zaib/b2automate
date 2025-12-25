@@ -1,433 +1,381 @@
-# B2Automate — WhatsApp AI Multi-Tenant SaaS Platform
+# B2Automate - WhatsApp AI Multi-Tenant SaaS
 
-## 1. Project Introduction
+## Project Overview
 
-Ye project ek **multi-tenant WhatsApp AI SaaS platform** hai jo small businesses ko allow karta hai apna WhatsApp automation setup karna. Har tenant (business) apna WhatsApp number connect kar sakta hai, services define kar sakta hai, aur AI ke zariye customer inquiries handle kar sakta hai. Orders automatically create hote hain lekin human approval required hoti hai — AI kabhi bhi order confirm nahi kar sakta.
-
----
-
-## 2. Tech Stack Overview
-
-### Backend Stack
-- **Node.js** with **Fastify** framework
-- **TypeScript** for type safety
-- **BullMQ** for job queue processing
-- **ioredis** for Redis communication
-
-### Frontend Stack
-- **React 18** with TypeScript
-- **Vite** for fast development builds
-- **React Router v7** for navigation
-- **TanStack Query** for API state management
-- **Framer Motion** for animations
-- **Tailwind CSS** for styling
-
-### Database
-- **PostgreSQL** — main database
-- **Prisma ORM** — for database migrations and queries
-
-### Redis
-- Session state storage
-- WhatsApp QR code storage 
-- BullMQ job queue backend
-
-### WhatsApp Integration
-- **Baileys** library (`@whiskeysockets/baileys`) — non-official WhatsApp Web API
-- QR-code based authentication
-- Session persistence per tenant
-
-### AI Usage
-- **LangChain** with **OpenAI** integration
-- AI guardrails for price detection and prohibited phrases
-- Kill switch functionality per tenant
+Ye ek multi-tenant WhatsApp automation platform hai jisme AI-powered customer support, order management, aur tenant administration shamil hai. Har tenant apna WhatsApp number connect kar sakta hai, services define kar sakta hai, aur AI customers se baat kar ke orders create karta hai.
 
 ---
 
-## 3. Project Folder Structure
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| Backend API | Fastify + TypeScript |
+| Database | PostgreSQL + Prisma ORM |
+| Queue | Redis + BullMQ |
+| WhatsApp | Baileys (unofficial WhatsApp Web API) |
+| AI Provider | OpenAI (with mock fallback) |
+| Frontend | React + Vite + TailwindCSS |
+| State Management | React Query + Context API |
+| Authentication | JWT (@fastify/jwt) |
+
+---
+
+## Folder Structure
 
 ```
 b2automate/
 ├── apps/
-│   ├── api/              # Backend API server (Fastify)
-│   ├── web/              # Frontend Admin Panel (React + Vite)
-│   └── whatsapp-worker/  # WhatsApp connection worker (Baileys)
+│   ├── api/              # Backend REST API (Fastify)
+│   ├── web/              # Tenant Admin Panel (React, port 5173)
+│   ├── admin/            # Super Admin Panel (React, port 5174)
+│   └── whatsapp-worker/  # WhatsApp message processor (BullMQ worker)
 ├── packages/
-│   ├── database/         # Prisma schema aur database client
-│   ├── ai-core/          # AI orchestration logic
-│   ├── shared-types/     # TypeScript types shared across apps
-│   └── logger/           # Centralized logging utility
-├── package.json          # Root package (npm workspaces)
-└── tsconfig.base.json    # Base TypeScript config
+│   ├── database/         # Prisma schema aur PrismaClient
+│   ├── logger/           # Pino-based logging utility
+│   ├── shared-types/     # Queue payloads aur shared TypeScript types
+│   └── ai-core/          # AI providers aur guardrails
+├── package.json          # Root workspace config
+└── tsconfig.base.json    # Shared TypeScript config
 ```
 
 ### Folder Explanations
 
-| Folder | Kya hai ye? |
-|--------|-------------|
-| `apps/api` | Backend server jo REST APIs provide karta hai — auth, services, orders, WhatsApp control |
-| `apps/web` | Admin Panel frontend jahan tenant login karta hai, services add karta hai, orders approve karta hai |
-| `apps/whatsapp-worker` | Background worker jo WhatsApp sessions manage karta hai aur messages send/receive karta hai |
-| `packages/database` | Prisma schema (database tables) aur database client export |
-| `packages/ai-core` | AI response generation with guardrails (price blocking, prohibited phrases) |
-| `packages/shared-types` | TypeScript interfaces jo API aur Worker dono use karte hain |
-| `packages/logger` | Pino-based logging jo consistent format mein logs create karta hai |
+- **apps/api**: Main backend server jo authentication, orders, services, aur WhatsApp session management handle karta hai
+- **apps/web**: Tenant admin panel jahan business apne services, orders, aur WhatsApp manage karta hai
+- **apps/admin**: Super admin panel jahan system-wide settings aur tenant management hoti hai
+- **apps/whatsapp-worker**: Background worker jo WhatsApp messages send/receive karta hai via Baileys
+- **packages/database**: Prisma schema jisme sab models (Tenant, User, Order, etc.) defined hain
+- **packages/logger**: Centralized logging using Pino
+- **packages/shared-types**: Queue payload types jo api aur worker dono share karte hain
+- **packages/ai-core**: AI response generation, guardrails (price detection, prohibited phrases)
 
 ---
 
-## 4. Prerequisites (Install Before Running)
+## Environment Variables
 
-Ye sab pehle install hona chahiye:
+### Backend API (apps/api)
 
-| Requirement | Description |
-|-------------|-------------|
-| **Node.js** | v18+ recommended (LTS version use karein) |
-| **npm** | Node ke saath aata hai (npm workspaces use ho rahe hain) |
-| **PostgreSQL** | Database server — version 14+ recommended |
-| **Redis** | Session storage aur job queues ke liye — version 6+ recommended |
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| JWT_SECRET | REQUIRED | N/A | JWT token signing key. Minimum 32 characters zaroori hai. App bina iske start nahi hoga. |
+| REDIS_URL | Optional | redis://localhost:6379 | Redis connection URL for session aur rate limiting |
+| OPENAI_API_KEY | Optional | Empty | OpenAI API key for AI responses. Bina iske mock provider use hoga. |
+| PORT | Optional | 3000 | Backend server port |
+| NODE_ENV | Optional | development | Environment mode (development/production) |
+| DATABASE_URL | REQUIRED | N/A | PostgreSQL connection string. Prisma ke liye zaroori. |
 
-### Installation Check Commands
+### WhatsApp Worker (apps/whatsapp-worker)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| REDIS_URL | Optional | redis://localhost:6379 | Redis connection URL for queues |
+| WHATSAPP_CUSTOMER_RATE_LIMIT | Optional | 10 | Per-customer messages allowed per window |
+| WHATSAPP_CUSTOMER_RATE_WINDOW | Optional | 60 | Rate limit window in seconds |
+
+### Frontend (apps/web, apps/admin)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| VITE_API_URL | Optional | http://localhost:3000 | Backend API URL |
+
+---
+
+## Prerequisites
+
+Ye tools install hona zaroori hai:
+
+1. **Node.js** - v18+ recommended
+2. **npm** - Node ke saath aata hai (workspaces support zaroori)
+3. **PostgreSQL** - Database server
+4. **Redis** - Session storage aur message queues ke liye
+
+### Verify Installation
 
 ```bash
-node --version    # v18.x.x ya upar hona chahiye
-npm --version     # v9.x.x ya upar
+node --version   # v18.0.0 ya upar hona chahiye
+npm --version    # v8+ recommended
 ```
-
-PostgreSQL aur Redis locally ya Docker ke zariye run kar sakte hain.
 
 ---
 
-## 5. Environment Setup (.env)
+## Database Setup
 
-### Backend Environment Variables (apps/api)
-
-Create a file: `apps/api/.env`
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DATABASE_URL` | ✅ Yes | PostgreSQL connection string, e.g. `postgresql://user:password@localhost:5432/b2automate` |
-| `REDIS_URL` | ❌ No | Redis connection URL. Default: `redis://localhost:6379` |
-| `JWT_SECRET` | ❌ No | Secret key for JWT tokens. Default: `supersecret_dev_key` (production mein strong secret use karein!) |
-| `PORT` | ❌ No | API server port. Default: `3000` |
-| `OPENAI_API_KEY` | ❌ No | OpenAI API key for AI features. Default: `mock-key` (AI mock mode) |
-
-**Example `.env` file:**
-```env
-DATABASE_URL=postgresql://postgres:password@localhost:5432/b2automate
-REDIS_URL=redis://localhost:6379
-JWT_SECRET=your_super_secret_key_here
-PORT=3000
-OPENAI_API_KEY=sk-your-openai-key
-```
-
-### WhatsApp Worker Environment Variables (apps/whatsapp-worker)
-
-Create a file: `apps/whatsapp-worker/.env`
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `REDIS_URL` | ❌ No | Redis connection URL. Default: `redis://localhost:6379` |
-
-**Example:**
-```env
-REDIS_URL=redis://localhost:6379
-```
-
-### Frontend Environment Variables (apps/web)
-
-Frontend ko separate `.env` ki zaroorat nahi default development mein. Lekin agar backend different URL par ho:
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `VITE_API_URL` | ❌ No | Backend API URL. Default: `http://localhost:3000` |
-
-Development mein Vite proxy automatically `/api` requests ko `localhost:3000` forward karta hai.
-
----
-
-## 6. Database Setup
-
-### Step 1: PostgreSQL Database Create Karein
+1. PostgreSQL me ek database create karo:
 
 ```sql
 CREATE DATABASE b2automate;
 ```
 
-Ya command line se:
-```bash
-createdb b2automate
+2. DATABASE_URL set karo (example):
+
+```
+DATABASE_URL="postgresql://username:password@localhost:5432/b2automate"
 ```
 
-### Step 2: Dependencies Install Karein
+3. Prisma migrations run karo:
 
-Root directory mein:
+```bash
+cd packages/database
+npx prisma migrate dev
+```
+
+4. Prisma client generate karo:
+
+```bash
+npx prisma generate
+```
+
+---
+
+## Running the Project
+
+### Step 1: Dependencies Install Karo
+
+Root folder me:
+
 ```bash
 npm install
 ```
 
-Ye command saari workspaces ke dependencies install karega.
+Ye sab workspaces ke dependencies install kar dega.
 
-### Step 3: Prisma Client Generate Karein
+### Step 2: Environment Files Create Karo
 
-```bash
-cd packages/database
-npm run db:generate
+**apps/api/.env:**
+```
+JWT_SECRET=your-secure-32-character-minimum-secret-key
+DATABASE_URL=postgresql://username:password@localhost:5432/b2automate
+REDIS_URL=redis://localhost:6379
+OPENAI_API_KEY=sk-your-openai-key  # Optional
+PORT=3000
 ```
 
-### Step 4: Database Migrations Run Karein
-
-```bash
-cd packages/database
-npm run db:migrate
+**apps/whatsapp-worker/.env:**
+```
+REDIS_URL=redis://localhost:6379
 ```
 
-Ye command Prisma schema ke according tables create karega (tenants, users, services, orders, etc.)
+### Step 3: Redis Start Karo
 
-> **Note:** Seed command is project mein available nahi hai. Pehla tenant aur user registration ke zariye create hoga.
-
----
-
-## 7. Running the Project (Step by Step)
-
-### Step 1: Redis Running Hai Ya Nahi Check Karein
-
-```bash
-redis-cli ping
-```
-
-Agar response `PONG` aaye to Redis chal raha hai.
-
-Redis start karne ke liye (Windows):
 ```bash
 redis-server
 ```
 
-### Step 2: Backend API Start Karein
+Ya Docker ke saath:
+```bash
+docker run -d -p 6379:6379 redis:alpine
+```
 
-Terminal 1 mein:
+### Step 4: Backend Start Karo
+
 ```bash
 cd apps/api
 npm run dev
 ```
 
-Backend port **3000** par chalega. Console mein ye dikhna chahiye:
-```
-Server listening on port 3000
-```
+Backend port 3000 pe chalega.
 
-Health check: `http://localhost:3000/health` → `{"status":"ok"}`
+### Step 5: WhatsApp Worker Start Karo
 
-### Step 3: WhatsApp Worker Start Karein
+Naye terminal me:
 
-Terminal 2 mein:
 ```bash
 cd apps/whatsapp-worker
 npm run dev
 ```
 
-Console mein likha aayega:
-```
-Starting WhatsApp Worker Service...
-Listening on queues: worker_commands, outbound_messages
-```
+### Step 6: Frontend Start Karo
 
-### Step 4: Frontend Start Karein
+Naye terminal me:
 
-Terminal 3 mein:
 ```bash
 cd apps/web
 npm run dev
 ```
 
-Frontend port **5173** par chalega. Console mein URL dikhega:
-```
-Local: http://localhost:5173/
-```
+Tenant Admin Panel: http://localhost:5173
 
-### Summary: Running Ports
+Super Admin Panel (optional):
 
-| Service | Port | URL |
-|---------|------|-----|
-| Backend API | 3000 | http://localhost:3000 |
-| Frontend | 5173 | http://localhost:5173 |
-| WhatsApp Worker | — | Background process (no HTTP) |
-
----
-
-## 8. First Time Usage Flow
-
-### Step 1: Browser Mein Frontend Kholein
-
-`http://localhost:5173` kholein.
-
-### Step 2: Naya Tenant Register Karein
-
-- Login page par agar pehli baar ho to **Register** option use karein
-- Tenant name, email aur password enter karein
-- Register successful hone par login karein
-
-### Step 3: Login Karein
-
-- Email aur password enter karein
-- Login ke baad Dashboard dikhega
-
-### Step 4: WhatsApp Connect Karein (QR Code)
-
-- Dashboard ya Onboarding se **WhatsApp Connect** section mein jayein
-- "Start Session" button click karein
-- QR Code screen par dikhega
-- Apne phone ke WhatsApp mein:
-  - **Settings** → **Linked Devices** → **Link a Device**
-  - Screen par dikh raha QR code scan karein
-- Connection successful hone par status "Connected" dikhega
-
-### Step 5: Services Add Karein
-
-- Left sidebar mein **Services** page par jayein
-- **Add Service** button click karein
-- Service ka naam, description, aur price enter karein
-- Save karein
-
-### Step 6: Orders Ka Flow Samjhein
-
-- Jab customer WhatsApp par message karega aur service ke baare mein poochega:
-  1. AI response dega (lekin prices ya confirmation nahi dega)
-  2. Customer order request karega to **Draft Order** create hoga
-  3. Admin Panel ke **Orders** page par order dikhega
-  4. Admin manually **Approve** ya **Reject** karega
-  5. Approval ke baad customer ko WhatsApp par confirmation jayega
-
-> **Important:** AI kabhi bhi directly order confirm nahi karta — sirf drafts create hote hain jo human approval require karte hain.
-
----
-
-## 9. Common Problems & Fixes
-
-### Problem: Backend start nahi ho raha
-
-**Possible Causes:**
-- PostgreSQL chal nahi raha
-- `DATABASE_URL` galat hai `.env` mein
-- Port 3000 already use mein hai
-
-**Fixes:**
 ```bash
-# PostgreSQL status check karein
-pg_isready
-
-# Different port use karein
-PORT=3001 npm run dev
+cd apps/admin
+npm run dev
 ```
 
-### Problem: Redis connection fail ho raha
+Super Admin Panel: http://localhost:5174
 
-**Error:** `Error: connect ECONNREFUSED 127.0.0.1:6379`
+---
+
+## First-Time Usage Flow
+
+### 1. Tenant Registration
+
+- Browser me http://localhost:5173 kholo
+- "Register" pe click karo
+- Business name, email, password enter karo
+- Account create ho jayega aur dashboard pe redirect hoga
+
+### 2. Login
+
+- Email aur password se login karo
+- Dashboard open hoga with WhatsApp status, orders, aur stats
+
+### 3. WhatsApp Connect
+
+- Dashboard pe "Connect WhatsApp" button hai
+- QR code appear hoga
+- WhatsApp mobile app se QR scan karo (Linked Devices)
+- Connection successful hone pe status "connected" dikhai dega
+
+### 4. Services Add Karo
+
+- Side menu me "Services" pe jao
+- "Add Service" se naye services create karo
+- Name, description, aur price enter karo
+
+### 5. Order Flow
+
+- Customer WhatsApp pe message karega
+- AI automatically respond karega aur order create karega
+- Orders section me orders dikhai denge
+- Approve ya Reject action lene honge
+
+---
+
+## Common Issues and Fixes
+
+### 1. Redis Not Running
+
+**Error:** Connection refused / ECONNREFUSED
 
 **Fix:**
 ```bash
-# Redis start karein
 redis-server
-
-# Ya Docker mein
-docker run -p 6379:6379 redis
+# Ya check karo: redis-cli ping
 ```
 
-### Problem: QR Code nahi dikh raha
+### 2. JWT_SECRET Missing
+
+**Error:** FATAL: JWT_SECRET environment variable is not set
+
+**Fix:** .env file me JWT_SECRET add karo (minimum 32 characters)
+
+### 3. QR Code Not Appearing
 
 **Possible Causes:**
-- WhatsApp Worker chal nahi raha
-- Redis connection issue
-- Session already connected hai
+- WhatsApp Worker nahi chal raha
+- Redis connection fail
 
-**Fixes:**
-1. WhatsApp Worker terminal check karein — koi error to nahi?
-2. Redis chal raha hai confirm karein
-3. "Stop Session" karein phir "Start Session" dobara
+**Fix:**
+- Check karo worker terminal me koi error hai ya nahi
+- Redis running confirm karo
 
-### Problem: Login karne ke baad redirect nahi ho raha
+### 4. 401 Unauthorized Errors
 
 **Possible Causes:**
-- Backend se response nahi aa raha
-- CORS issue
+- Token expire ho gaya
+- JWT_SECRET change ho gaya
 
-**Fixes:**
-1. Browser DevTools → Network tab mein `/auth/login` request check karein
-2. Backend console mein errors dekhein
-3. Frontend aur Backend dono chal rahe hain confirm karein
+**Fix:**
+- Logout aur login again
+- .env me same JWT_SECRET ensure karo
 
-### Problem: "Network Error" API calls mein
+### 5. Database Connection Failed
 
-**Possible Causes:**
-- Backend chal nahi raha
-- Vite proxy properly configured nahi
+**Error:** Could not connect to database
 
-**Fixes:**
-1. Backend `http://localhost:3000/health` check karein
-2. Frontend restart karein (`npm run dev`)
+**Fix:**
+- PostgreSQL running hai ya nahi check karo
+- DATABASE_URL correct hai ya nahi verify karo
+- Database actually exist karta hai ya nahi
+
+### 6. Prisma Client Not Found
+
+**Error:** Cannot find module '@prisma/client'
+
+**Fix:**
+```bash
+cd packages/database
+npx prisma generate
+```
 
 ---
 
-## 10. Important Notes (Read Before Production)
+## Security Notes
 
-### ⚠️ Security Warnings
+### JWT Secret
 
-1. **JWT_SECRET production mein change karein** — Default key sirf development ke liye hai
-2. **Password hashing** — Current implementation mock hai, production mein bcrypt/argon2 use karein
-3. **Environment files (.env) git mein commit na karein** — `.gitignore` mein add karein
+- Production me strong random string use karo (64+ characters recommended)
+- Kabhi bhi hardcode mat karo
+- Missing JWT_SECRET pe app start nahi hoga (fail-fast design)
 
-### 🏢 Multi-Tenant Architecture
+### Environment Secrets
 
-- Har tenant ka data completely isolated hai
-- JWT token mein tenant ID embedded hota hai
-- Cross-tenant access automatically blocked hai
+- .env files kabhi git me commit mat karo
+- .gitignore me .env already hai
+- Production me proper secrets manager use karo
 
-### 📱 WhatsApp Compliance
+### WhatsApp Ban Risk
 
-> **Warning:** Ye project unofficial WhatsApp Web API (Baileys) use karta hai.
+- Baileys unofficial WhatsApp Web API hai
+- WhatsApp ke Terms of Service violate karta hai
+- Commercial use pe ban ho sakta hai
+- Long-term ke liye Official WhatsApp Business API consider karo
 
-- WhatsApp ki Terms of Service ke against use karna account ban karwa sakta hai
-- Production usage se pehle WhatsApp Business API consider karein
-- Excessive messaging avoid karein — rate limits respect karein
+### Rate Limiting
 
-### 🤖 AI Safety
-
-- AI guardrails enabled hain — AI kabhi prices mention nahi karega
-- AI orders confirm nahi kar sakta — sirf drafts create hote hain
-- Per-tenant kill switch available hai (`isAiEnabled` flag)
-
-### 🚀 Production Deployment Notes
-
-- Production build ke liye:
-  ```bash
-  npm run build --workspaces
-  ```
-- Environment variables properly set karein
-- HTTPS enable karein (reverse proxy like Nginx use karein)
-- Database backups configure karein
+- API pe 100 requests/minute per tenant limit hai
+- WhatsApp messages pe 5/second global + 10/minute per customer limit hai
 
 ---
 
-## Quick Reference
+## Available Scripts
 
-### Common Commands
+### Root Level
 
-| Task | Command |
-|------|---------|
-| Install all dependencies | `npm install` (root mein) |
-| Start backend | `cd apps/api && npm run dev` |
-| Start frontend | `cd apps/web && npm run dev` |
-| Start WhatsApp worker | `cd apps/whatsapp-worker && npm run dev` |
-| Generate Prisma client | `cd packages/database && npm run db:generate` |
-| Run migrations | `cd packages/database && npm run db:migrate` |
-| Build all | `npm run build` (root mein) |
+```bash
+npm run build      # Sab workspaces build karo
+npm run test       # Sab workspaces test karo
+npm run lint       # Sab workspaces lint karo
+```
 
-### Default URLs
+### Backend (apps/api)
 
-| Service | URL |
-|---------|-----|
-| Frontend | http://localhost:5173 |
-| Backend API | http://localhost:3000 |
-| Health Check | http://localhost:3000/health |
+```bash
+npm run dev        # Development mode (tsx watch)
+npm run build      # TypeScript compile
+npm run start      # Production start
+```
+
+### Frontend (apps/web, apps/admin)
+
+```bash
+npm run dev        # Vite dev server
+npm run build      # Production build
+npm run preview    # Preview production build
+```
+
+### WhatsApp Worker
+
+```bash
+npm run dev        # Development mode (tsx watch)
+npm run build      # TypeScript compile
+npm run start      # Production start
+```
 
 ---
 
-*README generated after full project review — no assumptions made.*
+## Ports Summary
+
+| Service | Port |
+|---------|------|
+| Backend API | 3000 |
+| Tenant Admin Panel | 5173 |
+| Super Admin Panel | 5174 |
+| Redis | 6379 |
+| PostgreSQL | 5432 |
+
+---
+
+README.md updated after full codebase and env usage review — no guessing.

@@ -12,7 +12,7 @@ import { OutboundMessagePayload } from '@b2automate/shared-types';
 
 export function startEventProcessor(redisConnection: Redis, prisma: PrismaClient) {
     const outboundQueue = new Queue<OutboundMessagePayload>(QUEUE_NAMES.OUTBOUND_MESSAGES, { connection: redisConnection });
-    const aiOrchestrator = new AIOrchestrator(prisma, outboundQueue, 'MOCK'); // Use MOCK by default for safety in Phase 3 verification
+    const aiOrchestrator = new AIOrchestrator(prisma, outboundQueue); // Provider resolved per-request by governance
 
     const worker = new Worker<InboundEventPayload>(
         QUEUE_NAMES.INBOUND_EVENTS,

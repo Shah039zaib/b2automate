@@ -62,7 +62,8 @@ export class OrdersService {
 
         const updated = await this.prisma.order.update({
             where: { id: orderId },
-            data: { status: 'PENDING_APPROVAL' }
+            data: { status: 'PENDING_APPROVAL' },
+            include: { items: { include: { service: true } } }
         });
         return updated;
     }
@@ -116,5 +117,28 @@ export class OrdersService {
             include: { items: { include: { service: true } } },
             orderBy: { createdAt: 'desc' }
         });
+    }
+
+    async getOrderById(tenantId: string, orderId: string) {
+        const order = await this.prisma.order.findFirst({
+            where: { id: orderId, tenantId },
+            include: {
+                items: { include: { service: true } },
+                auditLogs: {
+                    orderBy: { timestamp: 'desc' },
+                    take: 10,
+                    select: {
+                        id: true,
+                        eventType: true,
+                        timestamp: true,
+                        actor: { select: { email: true } }
+                    }
+                }
+            }
+        });
+        if (!order) {
+            throw new Error('Order not found');
+        }
+        return order;
     }
 }

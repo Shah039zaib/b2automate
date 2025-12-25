@@ -8,8 +8,8 @@ export interface OutboundMessagePayload {
     tenantId: string;
     sessionId: string; // usually tenantId in this 1:1 model, but good to be explicit
     to: string; // phone number
-    type: 'text' | 'image' | 'audio';
-    content: string | { url: string; caption?: string };
+    type: 'text' | 'image' | 'audio' | 'document';
+    content: string | { url: string; caption?: string; mimetype?: string; fileName?: string };
     metadata?: Record<string, any>;
 }
 

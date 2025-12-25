@@ -7,6 +7,8 @@ export async function whatsappRoutes(app: FastifyInstance) {
     const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
     const service = new WhatsAppService(redis);
 
+    // SECURITY: JWT authentication MUST run before tenant context
+    app.addHook('preHandler', app.authenticate);
     app.addHook('preHandler', requireTenantId);
 
     app.post('/session/start', async (req, reply) => {

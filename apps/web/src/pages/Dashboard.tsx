@@ -2,7 +2,7 @@ import { motion } from 'framer-motion';
 import { Card, CardHeader, CardStat } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { SkeletonCard } from '../components/ui/Skeleton';
-import { MessageCircle, ShoppingCart, TrendingUp, Users, Wifi, WifiOff, Loader2 } from 'lucide-react';
+import { MessageCircle, ShoppingCart, TrendingUp, Wifi, WifiOff, Loader2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useServices } from '../hooks/useServices';
 import { useOrders } from '../hooks/useOrders';
@@ -109,15 +109,6 @@ export function Dashboard() {
                                 />
                             </Card>
                         </motion.div>
-                        <motion.div variants={item}>
-                            <Card>
-                                <CardStat
-                                    label="Tenants"
-                                    value="1"
-                                    icon={Users}
-                                />
-                            </Card>
-                        </motion.div>
                     </>
                 )}
             </div>
@@ -137,9 +128,9 @@ export function Dashboard() {
                                     <div key={order.id} className="flex items-center justify-between p-3 hover:bg-slate-50 rounded-lg transition-colors border border-transparent hover:border-slate-100">
                                         <div className="flex items-center gap-4">
                                             <div className={`w-2 h-2 rounded-full ${order.status === 'APPROVED' ? 'bg-green-500' :
-                                                    order.status === 'PENDING_APPROVAL' ? 'bg-orange-500' :
-                                                        order.status === 'REJECTED' ? 'bg-red-500' :
-                                                            'bg-primary-500'
+                                                order.status === 'PENDING_APPROVAL' ? 'bg-orange-500' :
+                                                    order.status === 'REJECTED' ? 'bg-red-500' :
+                                                        'bg-primary-500'
                                                 }`} />
                                             <div>
                                                 <p className="font-medium text-slate-800">
@@ -155,9 +146,9 @@ export function Dashboard() {
                                                 ${parseFloat(order.totalAmount).toFixed(2)}
                                             </span>
                                             <p className={`text-xs font-medium ${order.status === 'APPROVED' ? 'text-green-600' :
-                                                    order.status === 'PENDING_APPROVAL' ? 'text-orange-600' :
-                                                        order.status === 'REJECTED' ? 'text-red-600' :
-                                                            'text-slate-500'
+                                                order.status === 'PENDING_APPROVAL' ? 'text-orange-600' :
+                                                    order.status === 'REJECTED' ? 'text-red-600' :
+                                                        'text-slate-500'
                                                 }`}>
                                                 {order.status.replace('_', ' ')}
                                             </p>

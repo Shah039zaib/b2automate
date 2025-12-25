@@ -4,7 +4,7 @@ import { logger } from '@b2automate/logger';
 export class ServicesService {
     constructor(private prisma: PrismaClient) { }
 
-    async createService(tenantId: string, data: { name: string, description: string, price: number, currency?: string }) {
+    async createService(tenantId: string, actorUserId: string | null, data: { name: string, description: string, price: number, currency?: string }) {
         logger.info({ tenantId, name: data.name }, 'Creating service');
 
         // Create Service
@@ -25,7 +25,7 @@ export class ServicesService {
                 tenantId,
                 eventType: 'SERVICE_CREATED',
                 metadata: { serviceId: service.id, name: service.name, price: service.price },
-                actorUserId: null // TODO: Pass actor from context if available
+                actorUserId
             }
         });
 
@@ -36,11 +36,9 @@ export class ServicesService {
         return this.prisma.service.findMany({ where: { tenantId } });
     }
 
-    async updateService(tenantId: string, id: string, data: Partial<{ name: string, description: string, price: number, isActive: boolean }>) {
-        // Create Audit Log Snapshot BEFORE update?
-        // For now, simpler audit
+    async updateService(tenantId: string, actorUserId: string | null, id: string, data: Partial<{ name: string, description: string, price: number, isActive: boolean }>) {
         const updated = await this.prisma.service.update({
-            where: { id, tenantId }, // Ensure tenant isolation
+            where: { id, tenantId },
             data
         });
 
@@ -48,10 +46,46 @@ export class ServicesService {
             data: {
                 tenantId,
                 eventType: 'SERVICE_UPDATED',
-                metadata: { serviceId: id, updates: data }
+                metadata: { serviceId: id, updates: data },
+                actorUserId
             }
         });
 
         return updated;
+    }
+
+    async deleteService(tenantId: string, actorUserId: string | null, id: string) {
+        // Check if service has order items
+        const orderItemsCount = await this.prisma.orderItem.count({
+            where: { serviceId: id }
+        });
+
+        let result: { action: 'soft_deleted' | 'hard_deleted'; service?: any };
+
+        if (orderItemsCount > 0) {
+            // Soft delete - just set isActive to false
+            const updated = await this.prisma.service.update({
+                where: { id, tenantId },
+                data: { isActive: false }
+            });
+            result = { action: 'soft_deleted', service: updated };
+        } else {
+            // Hard delete
+            await this.prisma.service.delete({
+                where: { id, tenantId }
+            });
+            result = { action: 'hard_deleted' };
+        }
+
+        await this.prisma.auditLog.create({
+            data: {
+                tenantId,
+                eventType: result.action === 'soft_deleted' ? 'SERVICE_DEACTIVATED' : 'SERVICE_DELETED',
+                metadata: { serviceId: id, action: result.action },
+                actorUserId
+            }
+        });
+
+        return result;
     }
 }

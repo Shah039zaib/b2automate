@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { jwtDecode } from 'jwt-decode';
-import { authApi, getToken, setToken, removeToken, RegisterRequest } from '../lib/api';
+import { authApi, getToken, setToken, setRefreshToken, clearTokens, RegisterRequest } from '../lib/api';
 
 // JWT payload structure
 interface JwtPayload {
@@ -64,7 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 setUser(decoded);
             } else {
                 // Token expired or invalid
-                removeToken();
+                clearTokens();
             }
         }
         setIsLoading(false);
@@ -72,9 +72,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const login = useCallback(async (email: string, password: string) => {
         const response = await authApi.login({ email, password });
-        const { token } = response.data;
+        const { token, refreshToken } = response.data;
 
         setToken(token);
+        if (refreshToken) {
+            setRefreshToken(refreshToken);
+        }
         const decoded = decodeToken(token);
         if (decoded) {
             setUser(decoded);
@@ -89,7 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, [login]);
 
     const logout = useCallback(() => {
-        removeToken();
+        clearTokens();
         setUser(null);
         window.location.href = '/login';
     }, []);

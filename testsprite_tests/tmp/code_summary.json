@@ -1,0 +1,79 @@
+{
+    "projectName": "B2Automate",
+    "projectType": "monorepo",
+    "description": "Multi-tenant WhatsApp AI SaaS platform for business automation",
+    "techStack": {
+        "frontend": {
+            "framework": "React 18",
+            "buildTool": "Vite 5",
+            "styling": "Tailwind CSS",
+            "stateManagement": "TanStack Query",
+            "routing": "react-router-dom"
+        },
+        "backend": {
+            "runtime": "Node.js",
+            "framework": "Fastify",
+            "orm": "Prisma",
+            "database": "PostgreSQL"
+        }
+    },
+    "apps": [
+        {
+            "name": "web",
+            "type": "frontend",
+            "port": 5175,
+            "path": "apps/web"
+        },
+        {
+            "name": "admin",
+            "type": "frontend",
+            "port": 5175,
+            "path": "apps/admin"
+        },
+        {
+            "name": "api",
+            "type": "backend",
+            "port": 3000,
+            "path": "apps/api"
+        }
+    ],
+    "routes": {
+        "public": [
+            "/",
+            "/pricing",
+            "/login",
+            "/onboarding",
+            "/checkout/success"
+        ],
+        "protected": [
+            "/dashboard",
+            "/services",
+            "/orders",
+            "/analytics",
+            "/inbox"
+        ],
+        "adminOnly": [
+            "/settings",
+            "/team",
+            "/billing"
+        ]
+    },
+    "testingNotes": {
+        "safeToTest": [
+            "Landing page UI",
+            "Pricing page UI",
+            "Login form UI",
+            "Route protection redirects"
+        ],
+        "requiresBackend": [
+            "Authentication",
+            "Dashboard data",
+            "Billing operations"
+        ],
+        "requiresExternalAPI": [
+            "Stripe checkout",
+            "AI responses",
+            "WhatsApp messaging"
+        ]
+    }
+}
