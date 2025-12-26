@@ -12,7 +12,7 @@
         "@b2automate/shared-types": "*",
         "@fastify/cors": "^8.5.0",
         "@fastify/jwt": "^7.2.4",
-        "@fastify/rate-limit": "^10.3.0",
+        "@fastify/rate-limit": "^9.1.0",
         "@langchain/core": "^1.1.7",
         "@langchain/openai": "^1.2.0",
         "bcrypt": "^5.1.1",
