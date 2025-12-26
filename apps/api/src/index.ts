@@ -4,6 +4,7 @@ import fastifyJwt from '@fastify/jwt';
 import { logger } from '@b2automate/logger';
 import { tenantContextMiddleware } from './middleware/tenant-context';
 import Redis from 'ioredis';
+import { prisma } from './lib/prisma';
 
 // ============================================
 // SECURITY: JWT Secret Validation (HARD FAIL)
@@ -98,11 +99,18 @@ import { manualPaymentRoutes } from './modules/manual-payments/manual-payment.ro
 // Includes blacklist check for revoked tokens (Issue 3 fix)
 import { AuthService } from './modules/auth/auth.service';
 import { AuditLogger } from './services/audit-logger';
-const blacklistAuthService = new AuthService(prisma, new AuditLogger(prisma));
+
+// Lazy-initialized after prisma is ready
+let blacklistAuthService: AuthService | null = null;
 
 app.decorate('authenticate', async (request: any, reply: any) => {
     try {
         await request.jwtVerify();
+
+        // Initialize AuthService lazily on first request
+        if (!blacklistAuthService) {
+            blacklistAuthService = new AuthService(prisma, new AuditLogger(prisma));
+        }
 
         // SECURITY: Check if token was revoked via logout
         const authHeader = request.headers.authorization;
@@ -144,7 +152,6 @@ app.register(templateRoutes, { prefix: '/templates' });
 
 // Start Inbound Event Processor
 import { startEventProcessor } from './workers/event-processor';
-import { prisma } from './lib/prisma';
 import { BootstrapService } from './services/bootstrap.service';
 const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
 startEventProcessor(redis, prisma);

@@ -6,7 +6,16 @@ import Redis from 'ioredis';
 import { SessionManager } from './session-manager';
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-const redisConnection = new Redis(redisUrl);
+
+// Main Redis connection for general operations
+const redisConnection = new Redis(redisUrl, { maxRetriesPerRequest: null });
+
+// BullMQ requires maxRetriesPerRequest: null - we pass connection config to workers
+const bullmqConnectionConfig = {
+    host: new URL(redisUrl.replace('redis://', 'http://')).hostname || 'localhost',
+    port: parseInt(new URL(redisUrl.replace('redis://', 'http://')).port || '6379'),
+    maxRetriesPerRequest: null as null,
+};
 
 // Per-customer rate limiting configuration
 const CUSTOMER_RATE_LIMIT = parseInt(process.env.WHATSAPP_CUSTOMER_RATE_LIMIT || '10', 10); // 10 messages
@@ -65,7 +74,7 @@ async function startWorker() {
     // ============================================
     // Failed jobs will be logged and kept in 'failed' state for admin review
     const workerOptions = {
-        connection: redisConnection,
+        connection: bullmqConnectionConfig,
         // Concurrency limit
         concurrency: 5,
     };
@@ -231,7 +240,7 @@ async function startWorker() {
             }
         },
         {
-            connection: redisConnection,
+            connection: bullmqConnectionConfig,
             limiter: {
                 max: 5, // 5 messages
                 duration: 1000, // per second (per worker instance, but good enough)
