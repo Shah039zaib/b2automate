@@ -11,7 +11,16 @@ import { Queue } from 'bullmq';
 import { OutboundMessagePayload } from '@b2automate/shared-types';
 
 export function startEventProcessor(redisConnection: Redis, prisma: PrismaClient) {
-    const outboundQueue = new Queue<OutboundMessagePayload>(QUEUE_NAMES.OUTBOUND_MESSAGES, { connection: redisConnection });
+    // BullMQ requires maxRetriesPerRequest: null for blocking connections
+    // Extract connection details from existing Redis instance
+    const redisOptions = redisConnection.options;
+    const bullmqConnection = {
+        host: redisOptions.host || 'localhost',
+        port: redisOptions.port || 6379,
+        maxRetriesPerRequest: null as null,
+    };
+
+    const outboundQueue = new Queue<OutboundMessagePayload>(QUEUE_NAMES.OUTBOUND_MESSAGES, { connection: bullmqConnection });
     const aiOrchestrator = new AIOrchestrator(prisma, outboundQueue); // Provider resolved per-request by governance
 
     const worker = new Worker<InboundEventPayload>(
@@ -53,7 +62,7 @@ export function startEventProcessor(redisConnection: Redis, prisma: PrismaClient
                 });
             }
         },
-        { connection: redisConnection }
+        { connection: bullmqConnection }
     );
 
     worker.on('failed', (job, err) => logger.error({ id: job?.id, err }, 'Inbound Event Job failed'));
