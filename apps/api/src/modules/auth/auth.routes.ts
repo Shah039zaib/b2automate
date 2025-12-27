@@ -26,8 +26,31 @@ export async function authRoutes(app: FastifyInstance) {
         try {
             const result = await authService.registerTenant({ email, password, tenantName });
             return reply.code(201).send(result);
-        } catch (err) {
+        } catch (err: any) {
             req.log.error(err);
+
+            // Detect database connectivity errors (Prisma specific)
+            const isDbError = err?.code?.startsWith?.('P') ||
+                err?.message?.includes?.('database') ||
+                err?.message?.includes?.("Can't reach") ||
+                err?.name === 'PrismaClientInitializationError' ||
+                err?.name === 'PrismaClientKnownRequestError';
+
+            if (isDbError) {
+                return reply.code(503).send({
+                    error: 'Service temporarily unavailable',
+                    code: 'DB_UNAVAILABLE'
+                });
+            }
+
+            // Email already exists check
+            if (err?.code === 'P2002') {
+                return reply.code(409).send({
+                    error: 'Email already registered',
+                    code: 'EMAIL_EXISTS'
+                });
+            }
+
             return reply.code(400).send({ error: 'Registration failed' });
         }
     });
