@@ -75,6 +75,27 @@ sudo docker logs b2automate-api --tail 50
 
 ---
 
+### ISSUE #7 — Redis Eviction Policy Wrong for BullMQ
+
+- **Severity:** HIGH
+- **Root Cause:** `docker-compose.yml` had `maxmemory-policy allkeys-lru`
+- **Fix Applied:** Changed to `noeviction` as required by BullMQ for queue reliability
+- **Status:** ✅ RESOLVED
+
+---
+
+### ISSUE #8 — Auth Returns 400 Instead of 503 on DB Error
+
+- **Severity:** HIGH
+- **Root Cause:** Register endpoint caught all errors as "Registration failed" (400)
+- **Fix Applied:**
+  - Added Prisma error detection in `auth.routes.ts`
+  - DB connectivity errors → return 503 with `code: 'DB_UNAVAILABLE'`
+  - Duplicate email → return 409 with `code: 'EMAIL_EXISTS'`
+- **Status:** ✅ RESOLVED
+
+---
+
 ### Summary of Live Issues
 
 | # | Issue | Severity | Fix Applied | Status |
@@ -85,6 +106,8 @@ sudo docker logs b2automate-api --tail 50
 | 4 | Missing favicon | LOW | Removed reference | ✅ RESOLVED |
 | 5 | API growth/settings 500 | MEDIUM | Needs VPS logs | ⏳ PENDING |
 | 6 | Worker crash loop | CRITICAL | Start after DB check | ✅ RESOLVED |
+| 7 | Redis eviction policy | HIGH | Changed to noeviction | ✅ RESOLVED |
+| 8 | Auth error handling | HIGH | 503 for DB errors | ✅ RESOLVED |
 
 ---
 
