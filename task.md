@@ -1,8 +1,77 @@
 # B2Automate - Production Task Registry
 
-> **Last Updated:** 2025-12-26
+> **Last Updated:** 2025-12-27
 > **Source of Truth:** Single consolidated task file
-> **Status:** DEPLOYMENT DIAGNOSIS IN PROGRESS
+> **Status:** VPS LIVE DEPLOYMENT ISSUES IDENTIFIED
+
+---
+
+## ✅ VPS Deployment Issues (Live Environment) - RESOLVED
+
+> **Diagnosis Date:** 2025-12-27  
+> **Fix Date:** 2025-12-27  
+> **Environment:** Azure VM (Ubuntu) - http://74.225.189.91  
+> **Method:** Browser automation + API testing + Source code analysis
+
+---
+
+### ISSUE #1 — Admin Panel Blank Screen (Router Basename Missing)
+
+- **Severity:** CRITICAL
+- **Root Cause:** `<BrowserRouter>` missing `basename` prop
+- **Fix Applied:** Added `basename="/admin"` to Router in `apps/admin/src/App.tsx`
+- **Status:** ✅ RESOLVED
+
+---
+
+### ISSUE #2 — API Calls to localhost:3000 (VITE_API_URL Not Set)
+
+- **Severity:** CRITICAL
+- **Root Cause:** API fallback to `localhost:3000` in `lib/api.ts`
+- **Fix Applied:** Changed fallback to `/api` in both `apps/web/src/lib/api.ts` and `apps/admin/src/lib/api.ts`
+- **Status:** ✅ RESOLVED
+
+---
+
+### ISSUE #3 — Admin 401 Redirect Goes to Wrong Path
+
+- **Severity:** HIGH
+- **Root Cause:** Hardcoded redirect to `/login` instead of `/admin/login`
+- **Fix Applied:** Changed redirect path to `/admin/login` in `apps/admin/src/lib/api.ts`
+- **Status:** ✅ RESOLVED
+
+---
+
+### ISSUE #4 — Missing vite.svg Favicon (404 Error)
+
+- **Severity:** LOW
+- **Root Cause:** Default Vite favicon reference not removed
+- **Fix Applied:** Removed favicon link from `apps/admin/index.html`
+- **Status:** ✅ RESOLVED
+
+---
+
+### ISSUE #5 — API Growth Settings Returns 500
+
+- **Severity:** MEDIUM
+- **Status:** ⏳ PENDING VPS VERIFICATION
+- **Action Required:** Run on VPS:
+```bash
+sudo docker logs b2automate-api --tail 50
+```
+- **Likely Cause:** GrowthSettings row may not exist (bootstrap issue)
+
+---
+
+### Summary of Live Issues
+
+| # | Issue | Severity | Fix Applied | Status |
+|---|-------|----------|-------------|--------|
+| 1 | Admin blank screen | CRITICAL | Added `basename="/admin"` | ✅ RESOLVED |
+| 2 | API calls to localhost | CRITICAL | Changed to `/api` | ✅ RESOLVED |
+| 3 | Admin auth redirect | HIGH | Fixed to `/admin/login` | ✅ RESOLVED |
+| 4 | Missing favicon | LOW | Removed reference | ✅ RESOLVED |
+| 5 | API growth/settings 500 | MEDIUM | Needs VPS logs | ⏳ PENDING |
 
 ---
 
