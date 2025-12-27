@@ -72,7 +72,7 @@ export function Landing() {
                         <Link to="/login">
                             <Button variant="secondary" size="sm">Log In</Button>
                         </Link>
-                        <Link to="/register">
+                        <Link to="/onboarding">
                             <Button size="sm">Get Started</Button>
                         </Link>
                     </div>
@@ -104,7 +104,7 @@ export function Landing() {
                         transition={{ delay: 0.2 }}
                         className="flex gap-4 justify-center"
                     >
-                        <Link to="/register">
+                        <Link to="/onboarding">
                             <Button size="lg">
                                 Start Free
                                 <ArrowRight className="w-5 h-5 ml-2" />
@@ -232,7 +232,7 @@ export function Landing() {
                                         ))}
                                     </ul>
 
-                                    <Link to="/register" className="mt-auto">
+                                    <Link to="/onboarding" className="mt-auto">
                                         <Button
                                             variant={plan.aiPlan === 'PAID_PRO' ? 'primary' : 'outline'}
                                             className="w-full"
