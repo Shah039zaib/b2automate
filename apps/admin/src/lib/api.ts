@@ -1,6 +1,6 @@
 import axios, { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 const TOKEN_KEY = 'b2_admin_token';
 
@@ -31,8 +31,10 @@ api.interceptors.response.use(
     (error) => {
         if (error.response?.status === 401) {
             removeToken();
-            if (window.location.pathname !== '/login') {
-                window.location.href = '/login';
+            // Use relative path - with basename="/admin" this will redirect to /admin/login
+            const currentPath = window.location.pathname;
+            if (!currentPath.endsWith('/login')) {
+                window.location.href = '/admin/login';
             }
         }
         return Promise.reject(error);

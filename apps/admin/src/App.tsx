@@ -79,7 +79,7 @@ export default function App() {
     return (
         <QueryClientProvider client={queryClient}>
             <AuthProvider>
-                <Router>
+                <Router basename="/admin">
                     <AppRoutes />
                 </Router>
             </AuthProvider>
