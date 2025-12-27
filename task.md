@@ -180,6 +180,56 @@ sudo chown -R $USER:$USER apps/web/dist apps/admin/dist
 
 ---
 
+### Production Incident — VPS Public Access Failure (2025-12-27)
+
+> **Status:** 🔄 AZURE NSG UPDATE REQUIRED
+> **Symptom:** `curl http://localhost/` works, `curl http://PUBLIC_IP/` times out
+
+#### Root Cause: Azure Network Security Group (NSG)
+
+- **Why localhost works:** Traffic stays within VPS, bypasses NSG
+- **Why public IP fails:** Azure NSG blocks ALL inbound traffic except SSH (22) by default
+- **NOT a code issue:** Docker, Nginx, UFW all correctly configured
+
+#### Azure Portal Fix (REQUIRED):
+
+1. Go to **Azure Portal** → **Virtual Machines** → **whatsapp-server**
+2. Click **Networking** in left sidebar
+3. Click **Add inbound port rule**
+4. Configure:
+   - Source: **Any**
+   - Source port ranges: **\***
+   - Destination: **Any**
+   - Destination port ranges: **80, 443**
+   - Protocol: **TCP**
+   - Action: **Allow**
+   - Priority: **100**
+   - Name: **AllowHTTP**
+5. Click **Add**
+6. Repeat for port **443** (AllowHTTPS)
+
+#### Verification After NSG Update:
+
+```bash
+# From any external machine
+curl http://74.225.189.91/
+# Should return HTML
+
+# In browser
+http://74.225.189.91/
+# Should show B2Automate frontend
+```
+
+#### Why This Happened:
+
+Azure VMs have **two firewalls**:
+1. **UFW** (OS-level) - ✅ Correctly configured by setup.sh
+2. **NSG** (Cloud-level) - ❌ Not configured (Azure Portal required)
+
+UFW alone is not sufficient. NSG rules MUST be added via Azure Portal.
+
+---
+
 ## ✅ COMPLETED (Verified & Production-Ready)
 
 ### Authentication & Authorization
