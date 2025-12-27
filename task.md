@@ -110,9 +110,63 @@ const redisConfig = {
 | Check | Result |
 |-------|--------|
 | TypeScript Compilation | ✅ Pass |
-| Docker Build | 🔄 Pending VPS verification |
-| API Startup | 🔄 Pending VPS verification |
-| /health Endpoint | 🔄 Pending VPS verification |
+| Docker Build | ✅ Pass |
+| API Startup | ✅ Pass |
+| /health Endpoint | ✅ Pass |
+
+---
+
+### Production Incident — Frontend Build Failure (2025-12-27)
+
+> **Status:** 🔄 FIX APPLIED - PENDING VPS VERIFICATION
+> **Environment:** Linux VPS (Docker Compose, Azure VM)
+> **Symptom:** Browser ERR_CONNECTION_TIMED_OUT, no frontend served
+
+#### Root Cause: DevDependencies Not Installed
+
+- **Error:** `sh: 1: tsc: not found` when running `npm run build --workspace=apps/web`
+- **Root Cause:** When `NODE_ENV=production` is set, `npm ci` skips devDependencies. Frontend build requires `typescript` and `vite` which are devDependencies.
+- **File Changed:** `setup.sh`
+- **Fix Applied:**
+```bash
+# BEFORE:
+npm ci
+
+# AFTER:
+npm ci --include=dev
+```
+- **Why Correct:** The `--include=dev` flag forces npm to install devDependencies regardless of NODE_ENV setting
+
+#### Affected Files
+
+| File | Build Script | Required DevDeps |
+|------|--------------|------------------|
+| `apps/web/package.json` | `tsc -b && vite build` | typescript, vite |
+| `apps/admin/package.json` | `tsc -b && vite build` | typescript, vite |
+
+#### Verification Commands (VPS)
+
+```bash
+# 1. Pull latest changes
+git pull origin main
+
+# 2. Install dependencies WITH dev
+npm ci --include=dev
+
+# 3. Build frontends
+npm run build --workspace=apps/web
+npm run build --workspace=apps/admin
+
+# 4. Verify dist folders
+ls apps/web/dist/index.html
+ls apps/admin/dist/index.html
+
+# 5. Restart nginx to pick up new files
+sudo docker compose restart nginx
+
+# 6. Test access
+curl http://localhost/ | head -20
+```
 
 ---
 

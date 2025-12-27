@@ -172,8 +172,11 @@ log_success "Directories created"
 # Install Dependencies
 # ============================================
 
-log_info "Installing npm dependencies..."
-npm ci
+log_info "Installing npm dependencies (including devDependencies for build)..."
+
+# CRITICAL: Must include dev dependencies for tsc and vite
+# Even if NODE_ENV=production, we need devDeps for frontend build
+npm ci --include=dev
 
 log_success "Dependencies installed"
 
