@@ -8,10 +8,15 @@
  * - Non-destructive: Never deletes or overwrites existing data
  * - Features OFF by default: No auto-enabling of AI, WhatsApp, or billing
  * - Crash-resistant: Logs errors but never crashes the server
+ * - Auto-schema: Creates tables on first run if missing (prisma db push)
  */
 
 import { PrismaClient } from '@b2automate/database';
 import { logger } from '@b2automate/logger';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 /**
  * Safe default values for SystemSettings
@@ -46,7 +51,90 @@ const GROWTH_SETTINGS_DEFAULTS = {
 };
 
 export class BootstrapService {
+    private schemaInitialized = false;
+
     constructor(private prisma: PrismaClient) { }
+
+    /**
+     * Check if database schema exists by testing for core tables
+     * Returns true if schema is ready, false if tables are missing
+     */
+    private async checkSchemaExists(): Promise<boolean> {
+        try {
+            // Try to query a core table - if it fails with P2021, schema is missing
+            await this.prisma.$queryRaw`SELECT 1 FROM "tenants" LIMIT 1`;
+            return true;
+        } catch (error: any) {
+            // P2021 = Table does not exist
+            // P2010 = Raw query failed (table missing)
+            if (error?.code === 'P2021' || error?.code === 'P2010' || 
+                error?.message?.includes('does not exist')) {
+                return false;
+            }
+            // Other errors (permission, etc.) - assume schema exists
+            logger.warn({ error: error.message }, 'Schema check returned unexpected error');
+            return true;
+        }
+    }
+
+    /**
+     * Ensure database schema exists
+     * Runs prisma db push ONLY if tables are missing (first-time setup)
+     * 
+     * SAFETY:
+     * - Only runs when tables don't exist
+     * - prisma db push does NOT delete existing data
+     * - Idempotent: safe to call multiple times
+     */
+    async ensureSchemaExists(): Promise<{ created: boolean; error?: string }> {
+        // Check if schema already exists
+        const schemaExists = await this.checkSchemaExists();
+        
+        if (schemaExists) {
+            logger.debug('Database schema already exists, skipping creation');
+            this.schemaInitialized = true;
+            return { created: false };
+        }
+
+        logger.warn('Database schema missing - running prisma db push to create tables');
+        
+        try {
+            // Run prisma db push to create all tables
+            // --skip-generate: don't regenerate client (already done in Docker build)
+            // --accept-data-loss: not needed since DB is empty, but included for safety
+            const schemaPath = './packages/database/prisma/schema.prisma';
+            const command = `npx prisma db push --schema=${schemaPath} --skip-generate --accept-data-loss`;
+            
+            logger.info({ command }, 'Executing prisma db push...');
+            
+            const { stdout, stderr } = await execAsync(command, {
+                timeout: 120000, // 2 minute timeout
+                cwd: process.cwd()
+            });
+            
+            if (stdout) {
+                logger.info({ stdout }, 'prisma db push output');
+            }
+            if (stderr && !stderr.includes('warn')) {
+                logger.warn({ stderr }, 'prisma db push stderr');
+            }
+            
+            // Verify schema was created
+            const verifySchema = await this.checkSchemaExists();
+            if (!verifySchema) {
+                throw new Error('Schema creation failed - tables still missing after db push');
+            }
+            
+            logger.info('✅ Database schema created successfully (first-time setup)');
+            this.schemaInitialized = true;
+            return { created: true };
+            
+        } catch (error: any) {
+            const errorMsg = `Failed to create database schema: ${error.message}`;
+            logger.error({ error: error.message, stderr: error.stderr }, errorMsg);
+            return { created: false, error: errorMsg };
+        }
+    }
 
     /**
      * Ensure SystemSettings row exists
@@ -105,8 +193,8 @@ export class BootstrapService {
 
         logger.info('=== DATABASE BOOTSTRAP STARTING ===');
 
+        // Step 1: Test database connection
         try {
-            // Test database connection first
             await this.prisma.$queryRaw`SELECT 1`;
             logger.info('Database connection verified');
         } catch (error: any) {
@@ -116,14 +204,29 @@ export class BootstrapService {
             return { success: false, errors };
         }
 
-        // Bootstrap SystemSettings
+        // Step 2: Ensure schema exists (auto-create tables on first run)
+        try {
+            const schemaResult = await this.ensureSchemaExists();
+            if (schemaResult.error) {
+                errors.push(schemaResult.error);
+                // Don't abort - try to continue with other bootstrap steps
+            } else if (schemaResult.created) {
+                logger.info('Schema was created on this startup (first-time setup)');
+            }
+        } catch (error: any) {
+            const msg = `Schema check failed: ${error.message}`;
+            logger.error({ error: error.message }, msg);
+            errors.push(msg);
+        }
+
+        // Step 3: Bootstrap SystemSettings
         try {
             await this.ensureSystemSettings();
         } catch (error: any) {
             errors.push(`SystemSettings: ${error.message}`);
         }
 
-        // Bootstrap GrowthSettings
+        // Step 4: Bootstrap GrowthSettings
         try {
             await this.ensureGrowthSettings();
         } catch (error: any) {

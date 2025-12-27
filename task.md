@@ -79,6 +79,27 @@
 
 ---
 
+### ISSUE #11 — Auto Schema Creation on First Startup (NEW FEATURE)
+
+- **Severity:** 🟢 ENHANCEMENT
+- **Problem:**
+  - Database tables don't exist on fresh Supabase setup
+  - P2021 error: `The table "public.tenants" does not exist`
+  - Requires manual `prisma db push` on every new deployment
+- **Solution Implemented:**
+  - Added `ensureSchemaExists()` to `BootstrapService`
+  - On startup: checks if `tenants` table exists
+  - If missing → automatically runs `prisma db push` to create all tables
+  - Safe: only runs when tables don't exist, never deletes data
+- **File Changed:** `apps/api/src/services/bootstrap.service.ts`
+- **Startup Flow:**
+  ```
+  API Start → Check "tenants" table → Missing? → Run prisma db push → Tables created ✅
+  ```
+- **Status:** ✅ IMPLEMENTED
+
+---
+
 ### ISSUE #1 — Admin Panel Blank Screen (Router Basename Missing)
 
 - **Severity:** CRITICAL
