@@ -6,12 +6,52 @@
 
 ---
 
-## ✅ VPS Deployment Issues (Live Environment) - RESOLVED
+## 🔴 VPS Deployment Issues (Live Environment) - IN PROGRESS
 
 > **Diagnosis Date:** 2025-12-27  
 > **Fix Date:** 2025-12-27  
 > **Environment:** Azure VM (Ubuntu) - http://74.225.189.91  
-> **Method:** Browser automation + API testing + Source code analysis
+> **Method:** Browser automation + API testing + Source code analysis + Context7
+
+---
+
+### ISSUE #9 — DATABASE UNREACHABLE (ROOT CAUSE IDENTIFIED)
+
+- **Severity:** 🔴 BLOCKER
+- **Symptoms:**
+  - `/health` returns 502 Bad Gateway
+  - `/auth/register` returns `{"error":"Service temporarily unavailable","code":"DB_UNAVAILABLE"}`
+  - API logs: `Can't reach database server at db.jcrymvvrdbilclzkoyel.supabase.co:5432`
+- **Root Cause (Confirmed via Context7):**
+  - Current `.env` uses **direct connection** format: `db.xxx.supabase.co:5432`
+  - Direct connections to Supabase **require IPv6**
+  - Azure VM Docker containers **do not support IPv6 by default**
+  - The direct DB server hostname is NOT accessible from external networks without IPv6 or paid IPv4 add-on
+- **Correct Fix:**
+  - Must use **Supavisor pooler** connection string from Supabase Dashboard
+  - Pooler uses IPv4 and is accessible from any network
+- **Connection String Format:**
+
+  **WRONG (current):**
+  ```
+  postgresql://postgres:PASSWORD@db.jcrymvvrdbilclzkoyel.supabase.co:5432/postgres
+  ```
+
+  **CORRECT (Supavisor pooler):**
+  ```
+  # DATABASE_URL (Transaction mode - port 6543)
+  postgresql://postgres.jcrymvvrdbilclzkoyel:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1
+
+  # DIRECT_URL (Session mode - port 5432, for migrations)
+  postgresql://postgres.jcrymvvrdbilclzkoyel:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:5432/postgres
+  ```
+
+  **Where to get correct values:**
+  1. Go to Supabase Dashboard → Your Project → Connect
+  2. Click "Transaction pooler" → Copy connection string
+  3. Note the `[REGION]` from the URL (e.g., `us-east-1`)
+
+- **Status:** ⏳ PENDING VPS .env UPDATE
 
 ---
 
