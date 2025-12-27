@@ -55,6 +55,30 @@
 
 ---
 
+### ISSUE #10 — Registration Returns 503 Even When DB is Connected (FIXED)
+
+- **Severity:** 🔴 CRITICAL
+- **Symptoms:**
+  - `/health` returns `{"status":"ok","database":"connected"}`
+  - `/auth/register` returns `{"error":"Service temporarily unavailable","code":"DB_UNAVAILABLE"}` (503)
+- **Root Cause (Confirmed via Context7 Prisma Docs):**
+  - `auth.routes.ts` line 37 incorrectly classified `PrismaClientKnownRequestError` as DB error
+  - `err?.code?.startsWith?.('P')` caught ALL Prisma errors (P2xxx are query errors, not connectivity)
+  - This caused P2002 (email exists), P2003 (FK violation) to return 503 instead of proper codes
+- **Fix Applied:**
+  - Changed `isDbError` to `isDbConnectivityError` with correct detection:
+    - Only `PrismaClientInitializationError` and `PrismaClientRustPanicError` → 503
+    - Only `P1xxx` error codes (connection errors) → 503
+    - P2002 → 409 `EMAIL_EXISTS`
+    - P2003 → 400 `INVALID_REFERENCE`
+  - Added defensive logging around registration flow
+  - Added detection for `ECONNREFUSED`, `ETIMEDOUT`, `Connection refused`, `Connection timed out`
+- **File Changed:** `apps/api/src/modules/auth/auth.routes.ts`
+- **Verification:** TypeScript compilation passed
+- **Status:** ✅ FIXED (pending VPS deployment)
+
+---
+
 ### ISSUE #1 — Admin Panel Blank Screen (Router Basename Missing)
 
 - **Severity:** CRITICAL
@@ -148,6 +172,8 @@ sudo docker logs b2automate-api --tail 50
 | 6 | Worker crash loop | CRITICAL | Start after DB check | ✅ RESOLVED |
 | 7 | Redis eviction policy | HIGH | Changed to noeviction | ✅ RESOLVED |
 | 8 | Auth error handling | HIGH | 503 for DB errors | ✅ RESOLVED |
+| 9 | DB unreachable | BLOCKER | Supavisor pooler URL | ⏳ PENDING |
+| 10 | **Registration 503 bug** | **CRITICAL** | Fixed Prisma error classify | ✅ FIXED |
 
 ---
 

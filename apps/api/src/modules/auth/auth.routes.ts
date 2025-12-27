@@ -23,27 +23,53 @@ export async function authRoutes(app: FastifyInstance) {
         }
     }, async (req, reply) => {
         const { email, password, tenantName } = req.body as any;
+
+        // Defensive logging: track registration attempts
+        req.log.info({ email, tenantName }, 'Registration attempt started');
+
         try {
             const result = await authService.registerTenant({ email, password, tenantName });
+            req.log.info({ email, tenantId: result.tenant.id }, 'Registration completed successfully');
             return reply.code(201).send(result);
         } catch (err: any) {
-            req.log.error(err);
+            // Enhanced error logging for debugging
+            req.log.error({
+                email,
+                errorCode: err?.code,
+                errorName: err?.name,
+                errorMessage: err?.message
+            }, 'Registration failed');
 
-            // Detect database connectivity errors (Prisma specific)
-            const isDbError = err?.code?.startsWith?.('P') ||
-                err?.message?.includes?.('database') ||
-                err?.message?.includes?.("Can't reach") ||
+            // ============================================
+            // PRISMA ERROR CLASSIFICATION (Context7 verified)
+            // ============================================
+            // P1xxx = Connection errors → 503 DB_UNAVAILABLE
+            // P2xxx = Query/constraint errors → handled below
+            // PrismaClientInitializationError = Startup failure → 503
+            // PrismaClientKnownRequestError = Query failure (NOT a 503)
+            // ============================================
+
+            // TRUE connectivity/initialization errors ONLY
+            const isDbConnectivityError =
                 err?.name === 'PrismaClientInitializationError' ||
-                err?.name === 'PrismaClientKnownRequestError';
+                err?.name === 'PrismaClientRustPanicError' ||
+                err?.message?.includes?.("Can't reach") ||
+                err?.message?.includes?.("Connection refused") ||
+                err?.message?.includes?.("Connection timed out") ||
+                err?.message?.includes?.("ECONNREFUSED") ||
+                err?.message?.includes?.("ETIMEDOUT") ||
+                // P1xxx codes are connection errors (P1001, P1002, P1003, P1008, P1010, P1017)
+                err?.code?.startsWith?.('P1');
 
-            if (isDbError) {
+            if (isDbConnectivityError) {
+                req.log.warn({ email }, 'Registration failed due to DB connectivity issue');
                 return reply.code(503).send({
                     error: 'Service temporarily unavailable',
                     code: 'DB_UNAVAILABLE'
                 });
             }
 
-            // Email already exists check
+            // Email already exists (P2002 unique constraint on email field)
             if (err?.code === 'P2002') {
                 return reply.code(409).send({
                     error: 'Email already registered',
@@ -51,6 +77,15 @@ export async function authRoutes(app: FastifyInstance) {
                 });
             }
 
+            // Foreign key constraint failure (P2003)
+            if (err?.code === 'P2003') {
+                return reply.code(400).send({
+                    error: 'Invalid reference data',
+                    code: 'INVALID_REFERENCE'
+                });
+            }
+
+            // Generic registration failure for other errors
             return reply.code(400).send({ error: 'Registration failed' });
         }
     });
