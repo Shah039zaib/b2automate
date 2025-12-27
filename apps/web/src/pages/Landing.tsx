@@ -234,7 +234,7 @@ export function Landing() {
 
                                     <Link to="/register" className="mt-auto">
                                         <Button
-                                            variant={plan.aiPlan === 'PAID_PRO' ? 'default' : 'outline'}
+                                            variant={plan.aiPlan === 'PAID_PRO' ? 'primary' : 'outline'}
                                             className="w-full"
                                         >
                                             {plan.priceAmount === -1 ? 'Contact Sales' : (plan.priceAmount === 0 ? 'Get Started' : 'Subscribe')}
