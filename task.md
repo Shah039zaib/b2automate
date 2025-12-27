@@ -168,6 +168,16 @@ sudo docker compose restart nginx
 curl http://localhost/ | head -20
 ```
 
+#### Additional Fix: Permission Denied (EACCES) Error
+
+- **Error:** `EACCES: permission denied, mkdir '/home/azureuser/b2automate/apps/web/dist/assets'`
+- **Root Cause:** dist folders created with root ownership (from previous sudo/docker operations)
+- **Immediate VPS Fix:**
+```bash
+sudo chown -R $USER:$USER apps/web/dist apps/admin/dist
+```
+- **Permanent Fix:** Added ownership correction to `setup.sh` after mkdir
+
 ---
 
 ## ✅ COMPLETED (Verified & Production-Ready)

@@ -166,7 +166,17 @@ mkdir -p apps/admin/dist
 mkdir -p ssl
 mkdir -p logs
 
-log_success "Directories created"
+# CRITICAL: Fix ownership if directories were created by root/sudo previously
+# This prevents EACCES errors during npm build
+log_info "Fixing dist folder ownership (if needed)..."
+if [ -d "apps/web/dist" ]; then
+    sudo chown -R $USER:$USER apps/web/dist 2>/dev/null || true
+fi
+if [ -d "apps/admin/dist" ]; then
+    sudo chown -R $USER:$USER apps/admin/dist 2>/dev/null || true
+fi
+
+log_success "Directories created and ownership verified"
 
 # ============================================
 # Install Dependencies
