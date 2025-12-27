@@ -227,7 +227,9 @@ export function Onboarding() {
                                     >
                                         <div className="bg-white p-4 rounded-xl shadow-sm mb-6 inline-block">
                                             <img
-                                                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(whatsappStatus.qr!)}`}
+                                                src={whatsappStatus.qr!.startsWith('data:')
+                                                    ? whatsappStatus.qr!
+                                                    : `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(whatsappStatus.qr!)}`}
                                                 alt="WhatsApp QR Code"
                                                 className="w-48 h-48"
                                             />

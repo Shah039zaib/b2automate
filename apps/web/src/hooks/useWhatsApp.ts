@@ -10,16 +10,20 @@ export function useWhatsAppStatus(enabled: boolean = true) {
         },
         enabled,
         refetchInterval: (query) => {
-            // Poll every 3 seconds if waiting for QR or connecting
             const status = query.state.data?.status;
-            if (status === 'QR_READY' || status === 'CONNECTING') {
-                return 3000;
+            // Fast polling during connection to catch QR quickly
+            if (!status || status === 'CONNECTING' || status === 'DISCONNECTED') {
+                return 1000; // Poll every 1s until QR appears
             }
-            // Poll every 30 seconds when connected
+            // Faster polling while showing QR (expires in 60s)
+            if (status === 'QR_READY') {
+                return 2000; // Poll every 2s while showing QR
+            }
+            // Connected - slow polling for status updates
             if (status === 'CONNECTED') {
                 return 30000;
             }
-            // Poll every 5 seconds otherwise
+            // Default fallback
             return 5000;
         },
     });

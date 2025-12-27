@@ -6,14 +6,53 @@
 
 ---
 
-## 🔴 VPS Deployment Issues (Live Environment) - IN PROGRESS
+## 🔴 CODEBASE AUDIT RESULTS (2025-12-27)
 
-> **Diagnosis Date:** 2025-12-27  
-> **Fix Date:** 2025-12-27  
-> **Environment:** Azure VM (Ubuntu) - http://74.225.189.91  
-> **Method:** Browser automation + API testing + Source code analysis + Context7
+> **Audit Type:** Full End-to-End Production Debugging
+> **Method:** Traced every broken feature UI → API → Service → DB → Redis → Worker
+
+### Root Cause Summary
+
+**Most "Failed to load" errors are NOT code bugs.** They are caused by:
+
+1. **Database Connectivity (Issue #9)** - VPS cannot reach Supabase direct DB URL. Requires `.env` update to use Supavisor pooler (IPv4).
+2. **WhatsApp QR Code** - Two code fixes applied (see below).
+
+### Fixes Applied (2025-12-27)
+
+| File | Issue | Fix |
+|------|-------|-----|
+| `apps/web/src/pages/Onboarding.tsx` | QR image not rendering | Support both data URLs and external QR API |
+| `apps/web/src/hooks/useWhatsApp.ts` | Slow QR polling | Increased polling speed to 1s during CONNECTING |
+
+### Audit Findings by Feature
+
+| Feature | API Endpoint | Root Cause | Status |
+|---------|--------------|------------|--------|
+| Inbox | `/tenant/conversations` | DB connectivity | 🔴 Pending VPS .env |
+| Services | `/services` | DB connectivity | 🔴 Pending VPS .env |
+| Orders | `/orders` | DB connectivity | 🔴 Pending VPS .env |
+| Analytics | `/tenant/analytics` | DB connectivity | 🔴 Pending VPS .env |
+| Team | `/tenant/users` | DB connectivity | 🔴 Pending VPS .env |
+| Billing | `/tenant/billing` | DB connectivity | 🔴 Pending VPS .env |
+| Settings | `/tenant/settings` | DB connectivity | 🔴 Pending VPS .env |
+| Registration | `/auth/register` | ✅ Already fixed | ✅ FIXED |
+| WhatsApp QR | `/whatsapp/session/status` | Frontend QR rendering | ✅ FIXED |
+
+### Codebase Verification
+
+| Check | Result |
+|-------|--------|
+| All API routes have tenantId isolation | ✅ Verified |
+| JWT auth populates req.tenantId | ✅ Verified (index.ts line 136-138) |
+| Prisma queries include tenantId | ✅ Verified |
+| WhatsApp QR stored in Redis | ✅ Verified (session-manager.ts line 114) |
+| Worker BullMQ config correct | ✅ Verified (maxRetriesPerRequest: null) |
+| Nginx API routing correct | ✅ Verified (/api/ → API container) |
+| Vite base path correct | ✅ Verified (admin: /admin/, web: /) |
 
 ---
+
 
 ### ISSUE #9 — DATABASE UNREACHABLE (ROOT CAUSE IDENTIFIED)
 
