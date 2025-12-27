@@ -8,7 +8,9 @@
  * - Button: rounded-lg with hover states
  */
 
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { billingApi, SubscriptionPlan } from '../lib/api';
 import { motion } from 'framer-motion';
 import { Button } from '../components/ui/Button';
 import { CouponBanner } from '../components/CouponBanner';
@@ -21,6 +23,34 @@ import {
 } from 'lucide-react';
 
 export function Landing() {
+    const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    useEffect(() => {
+        const loadPlans = async () => {
+            try {
+                const response = await billingApi.getPlans();
+                setPlans(response.data);
+            } catch (err) {
+                console.error('Failed to load plans', err);
+                // Fallback to empty or specific logic if needed
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        loadPlans();
+    }, []);
+
+    const getPlanFeatures = (aiPlan: string) => {
+        const features: Record<string, string[]> = {
+            FREE: ['50 AI responses/day', 'Basic AI model', 'WhatsApp integration', '1 team member', 'Email support'],
+            PAID_BASIC: ['500 AI responses/day', 'Low-cost AI models', 'WhatsApp integration', '3 team members', 'Priority email support'],
+            PAID_PRO: ['2,000 AI responses/day', 'Advanced AI models', 'WhatsApp integration', '10 team members', 'Priority support', 'Analytics dashboard'],
+            ENTERPRISE: ['Unlimited AI responses', 'Custom AI models', 'WhatsApp integration', 'Unlimited team members', 'Dedicated support', 'SLA guarantees', 'Custom integrations'],
+        };
+        return features[aiPlan] || features['FREE'];
+    };
+
     return (
         <div className="min-h-screen bg-slate-50">
             {/* Promotional Banner */}
@@ -165,51 +195,54 @@ export function Landing() {
                     <p className="text-slate-600 mb-8">
                         Start free. Upgrade when you're ready.
                     </p>
-                    <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-                        {/* Free Plan */}
-                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                            <h3 className="font-semibold text-slate-900 mb-2">Free</h3>
-                            <div className="text-3xl font-bold text-slate-900 mb-4">$0<span className="text-sm font-normal text-slate-500">/mo</span></div>
-                            <ul className="space-y-2 text-left text-sm text-slate-600 mb-6">
-                                <li className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-green-500" /> 50 AI responses/day</li>
-                                <li className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-green-500" /> Basic AI model</li>
-                                <li className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-green-500" /> WhatsApp integration</li>
-                            </ul>
-                            <Link to="/register">
-                                <Button variant="outline" className="w-full">Get Started</Button>
-                            </Link>
-                        </div>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 max-w-6xl mx-auto">
+                        {isLoading ? (
+                            Array(3).fill(0).map((_, i) => (
+                                <div key={i} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 animate-pulse h-96"></div>
+                            ))
+                        ) : (
+                            plans.map((plan) => (
+                                <div key={plan.id} className={`bg-white rounded-xl shadow-sm p-6 relative flex flex-col ${plan.aiPlan === 'PAID_PRO' ? 'border-2 border-primary-600' : 'border border-slate-200'}`}>
+                                    {plan.aiPlan === 'PAID_PRO' && (
+                                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary-600 text-white text-xs font-medium px-3 py-1 rounded-full">
+                                            Popular
+                                        </div>
+                                    )}
+                                    <h3 className="font-semibold text-slate-900 mb-2">{plan.name}</h3>
 
-                        {/* Pro Plan */}
-                        <div className="bg-white rounded-xl shadow-sm border-2 border-primary-600 p-6 relative">
-                            <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary-600 text-white text-xs font-medium px-3 py-1 rounded-full">
-                                Popular
-                            </div>
-                            <h3 className="font-semibold text-slate-900 mb-2">Pro</h3>
-                            <div className="text-3xl font-bold text-slate-900 mb-4">$49<span className="text-sm font-normal text-slate-500">/mo</span></div>
-                            <ul className="space-y-2 text-left text-sm text-slate-600 mb-6">
-                                <li className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-green-500" /> 2,000 AI responses/day</li>
-                                <li className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-green-500" /> Advanced AI models</li>
-                                <li className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-green-500" /> Priority support</li>
-                            </ul>
-                            <Link to="/register">
-                                <Button className="w-full">Choose Pro</Button>
-                            </Link>
-                        </div>
+                                    <div className="mb-4">
+                                        {plan.priceAmount === -1 ? (
+                                            <div className="text-3xl font-bold text-slate-900">Custom</div>
+                                        ) : plan.priceAmount === 0 ? (
+                                            <div className="text-3xl font-bold text-slate-900">Free</div>
+                                        ) : (
+                                            <div className="flex items-baseline gap-1">
+                                                <span className="text-3xl font-bold text-slate-900">${(plan.priceAmount / 100).toFixed(0)}</span>
+                                                <span className="text-sm font-normal text-slate-500">/mo</span>
+                                            </div>
+                                        )}
+                                    </div>
 
-                        {/* Enterprise */}
-                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                            <h3 className="font-semibold text-slate-900 mb-2">Enterprise</h3>
-                            <div className="text-3xl font-bold text-slate-900 mb-4">Custom</div>
-                            <ul className="space-y-2 text-left text-sm text-slate-600 mb-6">
-                                <li className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-green-500" /> Unlimited AI responses</li>
-                                <li className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-green-500" /> Custom AI models</li>
-                                <li className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-green-500" /> Dedicated support</li>
-                            </ul>
-                            <Link to="/pricing">
-                                <Button variant="outline" className="w-full">Contact Sales</Button>
-                            </Link>
-                        </div>
+                                    <ul className="space-y-2 text-left text-sm text-slate-600 mb-6 flex-grow">
+                                        {getPlanFeatures(plan.aiPlan).map((feature, i) => (
+                                            <li key={i} className="flex items-start gap-2">
+                                                <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
+                                                <span>{feature}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+
+                                    <Link to="/register" className="mt-auto">
+                                        <Button
+                                            variant={plan.aiPlan === 'PAID_PRO' ? 'default' : 'outline'}
+                                            className="w-full"
+                                        >
+                                            {plan.priceAmount === -1 ? 'Contact Sales' : (plan.priceAmount === 0 ? 'Get Started' : 'Subscribe')}
+                                        </Button>
+                                    </Link>
+                                </div>
+                            ))
+                        )}
                     </div>
                 </div>
             </section>
