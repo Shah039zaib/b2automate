@@ -63,6 +63,18 @@ sudo docker logs b2automate-api --tail 50
 
 ---
 
+### ISSUE #6 — ScheduledMessageProcessor Crash Loop (Worker Error Spam)
+
+- **Severity:** CRITICAL
+- **Root Cause:** Worker started BEFORE database connection verified in `index.ts`
+- **Fix Applied:** 
+  - Moved `ScheduledMessageProcessor.start()` inside `start()` function
+  - Only starts if `bootstrapResult.success === true`
+  - Enhanced `/health` endpoint to show `database: connected|disconnected`
+- **Status:** ✅ RESOLVED
+
+---
+
 ### Summary of Live Issues
 
 | # | Issue | Severity | Fix Applied | Status |
@@ -72,6 +84,7 @@ sudo docker logs b2automate-api --tail 50
 | 3 | Admin auth redirect | HIGH | Fixed to `/admin/login` | ✅ RESOLVED |
 | 4 | Missing favicon | LOW | Removed reference | ✅ RESOLVED |
 | 5 | API growth/settings 500 | MEDIUM | Needs VPS logs | ⏳ PENDING |
+| 6 | Worker crash loop | CRITICAL | Start after DB check | ✅ RESOLVED |
 
 ---
 
