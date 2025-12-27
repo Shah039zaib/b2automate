@@ -14,6 +14,7 @@ export class WhatsAppService {
 
     async startSession(tenantId: string) {
         logger.info({ tenantId }, 'Requesting session start');
+        await this.redis.set(`whatsapp:status:${tenantId}`, 'CONNECTING'); // Optimistic update
         await this.commandQueue.add('start-session', {
             type: 'START_SESSION',
             tenantId
