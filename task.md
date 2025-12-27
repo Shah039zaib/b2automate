@@ -230,6 +230,65 @@ UFW alone is not sufficient. NSG rules MUST be added via Azure Portal.
 
 ---
 
+### VPS Deployment Failure Resolution (2025-12-27)
+
+> **Status:** ✅ RESOLVED
+> **Diagnosis Mode:** Context7 Documentation Verification + Full Codebase Audit
+
+#### Context7 Documentation Verification
+
+| Technology | Verified Topic | Finding |
+|------------|----------------|---------|
+| Prisma | binaryTargets Docker | `linux-musl-openssl-3.0.x` required for node:20-alpine ✅ |
+| Docker | Multi-stage builds | chown/USER directive for permissions ✅ |
+| Fastify | Schema validation | Zod compilers must be registered ✅ |
+| Vite | Build base path | `base` required for non-root serving ⚠️ |
+
+#### Issue Found: Admin Panel Base Path Missing
+
+- **Error:** Admin panel at `/admin` loads blank page, 404 on all assets
+- **Root Cause:** `apps/admin/vite.config.ts` lacked `base: '/admin/'` configuration
+- **Why it fails on VPS:** 
+  - Nginx serves admin via `alias /var/www/admin`
+  - Built `index.html` references `/assets/index-xxx.js`
+  - Browser requests `/assets/index-xxx.js` → 404 (should be `/admin/assets/index-xxx.js`)
+- **Why it works locally:** Dev server runs on separate port (5174), no path prefix needed
+- **File Changed:** `apps/admin/vite.config.ts`
+- **Fix Applied:**
+```typescript
+export default defineConfig({
+    plugins: [react()],
+    base: '/admin/',  // Added for production Nginx serving
+    server: { ... }
+})
+```
+
+#### Previously Fixed Issues (Verified Present)
+
+| Issue | File | Status |
+|-------|------|--------|
+| Prisma binaryTargets | `schema.prisma` | ✅ Present |
+| Fastify Zod compilers | `apps/api/src/index.ts` | ✅ Present |
+| BullMQ maxRetriesPerRequest | Multiple files | ✅ Present |
+| npm ci --include=dev | `setup.sh` | ✅ Present |
+| dist folder ownership | `setup.sh` | ✅ Present |
+
+#### Deployment Commands
+
+```bash
+# On VPS after git pull:
+git pull origin main
+npm ci --include=dev
+npm run build --workspace=apps/web
+npm run build --workspace=apps/admin
+sudo docker compose down && sudo docker compose up -d
+curl http://localhost/          # Web frontend
+curl http://localhost/admin     # Admin panel
+curl http://localhost/health    # API health
+```
+
+---
+
 ## ✅ COMPLETED (Verified & Production-Ready)
 
 ### Authentication & Authorization
