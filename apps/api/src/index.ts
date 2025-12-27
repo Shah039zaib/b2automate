@@ -131,6 +131,12 @@ app.decorate('authenticate', async (request: any, reply: any) => {
             blacklistAuthService = new AuthService(prisma, new AuditLogger(prisma));
         }
 
+        // CRITICAL FIX: Set tenantId from verified JWT
+        // Global middleware runs on 'onRequest' (before auth), so we must populate it here
+        if (request.user && request.user.tenantId) {
+            request.tenantId = request.user.tenantId;
+        }
+
         // SECURITY: Check if token was revoked via logout
         const authHeader = request.headers.authorization;
         if (authHeader?.startsWith('Bearer ')) {

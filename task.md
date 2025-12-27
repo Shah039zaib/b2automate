@@ -198,7 +198,34 @@ sudo docker logs b2automate-api --tail 50
 
 ---
 
-## 🔴 Deployment Blockers (Auto-Detected)
+---
+
+## 🔴 Phase 4 — Production Stability Audit (Runtime Errors) - URGENT
+
+> **Objective:** Fix "Failed to load" errors across all main pages (Inbox, Services, Orders, etc)
+> **Status:** ✅ ROOT CAUSE FIXED (Single Middleware Fail)
+
+### Root Cause Analysis
+- **Issue:** Global `tenantContextMiddleware` ran on `onRequest` (before JWT Auth).
+- **Result:** `req.tenantId` was `undefined` for all protected routes.
+- **Impact:** Prisma queries requiring `tenantId` failed (500 Error).
+- **Fix:** Updated `app.authenticate` in `index.ts` to explicitly populate `req.tenantId` from verified JWT.
+
+### Modules Audited & Verified
+
+- [x] **Core Infrastructure**
+    - [x] Middleware: `tenant-context.ts` (Logic valid, timing was wrong)
+    - [x] App Registration: `app.ts` (Fix applied to `authenticate` decorator)
+    - [x] Prisma: `schema.prisma` (Relations correct)
+
+- [x] **Inbox Module** (`/conversations`) -> **FIXED**
+- [x] **Services Module** (`/services`) -> **FIXED**
+- [x] **Orders Module** (`/orders`) -> **FIXED**
+- [x] **Analytics Module** (`/tenant/analytics`) -> **FIXED**
+- [x] **Team Module** (`/tenant/users`) -> **FIXED**
+- [x] **Billing Module** (`/tenant/billing`) -> **FIXED**
+
+---
 
 > **Diagnosis Date:** 2025-12-26
 > **Result:** ❌ NO BUILD-TIME BLOCKERS FOUND
