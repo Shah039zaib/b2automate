@@ -42,7 +42,7 @@ export function Landing() {
                         <Link to="/login">
                             <Button variant="secondary" size="sm">Log In</Button>
                         </Link>
-                        <Link to="/pricing">
+                        <Link to="/register">
                             <Button size="sm">Get Started</Button>
                         </Link>
                     </div>
@@ -74,9 +74,9 @@ export function Landing() {
                         transition={{ delay: 0.2 }}
                         className="flex gap-4 justify-center"
                     >
-                        <Link to="/pricing">
+                        <Link to="/register">
                             <Button size="lg">
-                                View Pricing
+                                Start Free
                                 <ArrowRight className="w-5 h-5 ml-2" />
                             </Button>
                         </Link>
@@ -175,7 +175,7 @@ export function Landing() {
                                 <li className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-green-500" /> Basic AI model</li>
                                 <li className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-green-500" /> WhatsApp integration</li>
                             </ul>
-                            <Link to="/pricing">
+                            <Link to="/register">
                                 <Button variant="outline" className="w-full">Get Started</Button>
                             </Link>
                         </div>
@@ -192,7 +192,7 @@ export function Landing() {
                                 <li className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-green-500" /> Advanced AI models</li>
                                 <li className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-green-500" /> Priority support</li>
                             </ul>
-                            <Link to="/pricing">
+                            <Link to="/register">
                                 <Button className="w-full">Choose Pro</Button>
                             </Link>
                         </div>

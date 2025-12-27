@@ -1,7 +1,7 @@
 /**
  * Pricing Page
  * 
- * Fetches plans from API and integrates with Stripe checkout
+ * Fetches plans from API and integrates with Stripe checkout + Manual payments
  */
 
 import { useState, useEffect } from 'react';
@@ -9,6 +9,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Button } from '../components/ui/Button';
 import { CouponBanner, getStripeCouponId } from '../components/CouponBanner';
+import { ManualPaymentForm } from '../components/ManualPaymentForm';
 import { useAuth } from '../contexts/AuthContext';
 import { billingApi, SubscriptionPlan } from '../lib/api';
 import {
@@ -16,7 +17,10 @@ import {
     CheckCircle,
     ArrowRight,
     Zap,
-    AlertCircle
+    AlertCircle,
+    CreditCard,
+    Smartphone,
+    X
 } from 'lucide-react';
 
 // Fallback static plans when API unavailable
@@ -39,6 +43,9 @@ export function Pricing() {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+    const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan | null>(null);
+    const [showPaymentOptions, setShowPaymentOptions] = useState(false);
+    const [showManualPayment, setShowManualPayment] = useState(false);
     const { user, isAuthenticated } = useAuth();
     const navigate = useNavigate();
 
@@ -81,14 +88,22 @@ export function Pricing() {
             return;
         }
 
+        // Show payment options modal
+        setSelectedPlan(plan);
+        setShowPaymentOptions(true);
+    };
+
+    const handleStripeCheckout = async () => {
+        if (!selectedPlan) return;
+
         try {
-            setCheckoutLoading(plan.id);
+            setCheckoutLoading(selectedPlan.id);
 
             // Get active coupon if any
             const couponId = getStripeCouponId();
 
             const response = await billingApi.createCheckoutSession(
-                plan.id,
+                selectedPlan.id,
                 user!.tenantId,
                 user!.email,
                 couponId || undefined
@@ -97,9 +112,20 @@ export function Pricing() {
             window.location.href = response.data.url;
         } catch (err: any) {
             console.error('Checkout failed:', err);
-            setError(err.response?.data?.error || 'Checkout failed. Please try again.');
+            setError(err.response?.data?.error || 'Stripe checkout failed. Try manual payment.');
             setCheckoutLoading(null);
         }
+    };
+
+    const handleManualPayment = () => {
+        setShowPaymentOptions(false);
+        setShowManualPayment(true);
+    };
+
+    const closePaymentOptions = () => {
+        setShowPaymentOptions(false);
+        setSelectedPlan(null);
+        setCheckoutLoading(null);
     };
 
     const formatPrice = (amount: number) => {
@@ -275,6 +301,99 @@ export function Pricing() {
                     </div>
                 </div>
             </footer>
+
+            {/* Payment Options Modal */}
+            {showPaymentOptions && selectedPlan && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="bg-white rounded-xl shadow-xl max-w-md w-full p-6"
+                    >
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-xl font-semibold text-slate-900">
+                                Choose Payment Method
+                            </h3>
+                            <button
+                                onClick={closePaymentOptions}
+                                className="text-slate-400 hover:text-slate-600"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        <div className="bg-slate-50 rounded-lg p-4 mb-6">
+                            <div className="flex justify-between items-center">
+                                <span className="font-medium text-slate-900">{selectedPlan.name} Plan</span>
+                                <span className="text-xl font-bold text-primary-600">
+                                    {formatPrice(selectedPlan.priceAmount)}/mo
+                                </span>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3">
+                            {/* Stripe Option */}
+                            <button
+                                onClick={handleStripeCheckout}
+                                disabled={checkoutLoading !== null}
+                                className="w-full flex items-center gap-4 p-4 border-2 border-slate-200 rounded-xl hover:border-primary-500 hover:bg-primary-50 transition-all disabled:opacity-50"
+                            >
+                                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                                    <CreditCard className="w-6 h-6 text-blue-600" />
+                                </div>
+                                <div className="text-left flex-1">
+                                    <p className="font-medium text-slate-900">Pay with Card</p>
+                                    <p className="text-sm text-slate-500">Visa, Mastercard, etc.</p>
+                                </div>
+                                {checkoutLoading && (
+                                    <div className="w-5 h-5 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
+                                )}
+                            </button>
+
+                            {/* Manual Payment Option */}
+                            <button
+                                onClick={handleManualPayment}
+                                className="w-full flex items-center gap-4 p-4 border-2 border-slate-200 rounded-xl hover:border-green-500 hover:bg-green-50 transition-all"
+                            >
+                                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                                    <Smartphone className="w-6 h-6 text-green-600" />
+                                </div>
+                                <div className="text-left flex-1">
+                                    <p className="font-medium text-slate-900">Manual Payment</p>
+                                    <p className="text-sm text-slate-500">EasyPaisa, JazzCash, Bank Transfer</p>
+                                </div>
+                            </button>
+                        </div>
+
+                        {error && (
+                            <div className="mt-4 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700">
+                                <AlertCircle className="w-4 h-4" />
+                                <span className="text-sm">{error}</span>
+                            </div>
+                        )}
+                    </motion.div>
+                </div>
+            )}
+
+            {/* Manual Payment Form */}
+            {showManualPayment && selectedPlan && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+                    <div className="my-8">
+                        <ManualPaymentForm
+                            plan={selectedPlan}
+                            onBack={() => {
+                                setShowManualPayment(false);
+                                setShowPaymentOptions(true);
+                            }}
+                            onSuccess={() => {
+                                setShowManualPayment(false);
+                                setSelectedPlan(null);
+                                navigate('/dashboard');
+                            }}
+                        />
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
