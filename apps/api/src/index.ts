@@ -83,9 +83,20 @@ app.addHook('onResponse', async (request, reply) => {
     }
 });
 
-// Health Check
+// Health Check (includes DB status)
 app.get('/health', async () => {
-    return { status: 'ok' };
+    let dbStatus = 'unknown';
+    try {
+        await prisma.$queryRaw`SELECT 1`;
+        dbStatus = 'connected';
+    } catch {
+        dbStatus = 'disconnected';
+    }
+    return {
+        status: 'ok',
+        database: dbStatus,
+        timestamp: new Date().toISOString()
+    };
 });
 
 // Register Routes
@@ -164,7 +175,7 @@ import { BootstrapService } from './services/bootstrap.service';
 const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
 startEventProcessor(redis, prisma);
 
-// Start Scheduled Message Processor (Phase 6B)
+// Phase 6B: Scheduled Message Processor (started after DB verification)
 import { Queue } from 'bullmq';
 import { QUEUE_NAMES, OutboundMessagePayload } from '@b2automate/shared-types';
 import { ScheduledMessageProcessor } from './workers/scheduled-message-processor';
@@ -176,8 +187,6 @@ const redisConfig = {
     maxRetriesPerRequest: null as null,
 };
 const outboundQueue = new Queue<OutboundMessagePayload>(QUEUE_NAMES.OUTBOUND_MESSAGES, { connection: redisConfig });
-const scheduledProcessor = new ScheduledMessageProcessor(prisma, outboundQueue);
-scheduledProcessor.start();
 
 const start = async () => {
     try {
@@ -193,6 +202,20 @@ const start = async () => {
         if (!bootstrapResult.success) {
             logger.warn({ errors: bootstrapResult.errors },
                 'BOOTSTRAP WARNING: Running with incomplete initialization');
+        }
+
+        // ============================================
+        // START SCHEDULED MESSAGE PROCESSOR (PHASE 6B)
+        // ============================================
+        // Only start if database is reachable (bootstrap success)
+        // This prevents error spam when DB is unreachable
+
+        if (bootstrapResult.success) {
+            const scheduledProcessor = new ScheduledMessageProcessor(prisma, outboundQueue);
+            scheduledProcessor.start();
+            logger.info('Scheduled message processor started (DB connected)');
+        } else {
+            logger.warn('Scheduled message processor NOT started (DB unreachable)');
         }
 
         const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
