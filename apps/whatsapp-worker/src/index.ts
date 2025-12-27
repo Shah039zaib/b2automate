@@ -98,7 +98,9 @@ async function startWorker() {
 
             try {
                 if (type === 'START_SESSION') {
-                    await sessionManager.startSession(tenantId);
+                    // Extract forceNew flag from job data (defaults to false for backward compatibility)
+                    const forceNew = (job.data as any).forceNew ?? false;
+                    await sessionManager.startSession(tenantId, forceNew);
                 } else if (type === 'STOP_SESSION') {
                     await sessionManager.getSession(tenantId).then(sock => sock?.end(undefined));
                     await sessionManager.cleanupSession(tenantId);

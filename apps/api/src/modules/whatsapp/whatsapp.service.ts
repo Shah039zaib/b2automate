@@ -17,7 +17,8 @@ export class WhatsAppService {
         await this.redis.set(`whatsapp:status:${tenantId}`, 'CONNECTING'); // Optimistic update
         await this.commandQueue.add('start-session', {
             type: 'START_SESSION',
-            tenantId
+            tenantId,
+            forceNew: true  // Always generate fresh QR when user explicitly requests
         });
         return { status: 'REQUESTED' };
     }

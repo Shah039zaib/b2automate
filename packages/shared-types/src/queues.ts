@@ -22,4 +22,5 @@ export interface InboundEventPayload {
 export interface WorkerCommandPayload {
     type: 'START_SESSION' | 'STOP_SESSION';
     tenantId: string;
+    forceNew?: boolean;  // If true, clears existing auth state before starting session
 }

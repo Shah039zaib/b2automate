@@ -77,13 +77,36 @@ export class SessionManager {
         }
     }
 
-    async startSession(tenantId: string) {
-        if (this.sessions.has(tenantId)) {
+    async startSession(tenantId: string, forceNew: boolean = false) {
+        const existingSocket = this.sessions.get(tenantId);
+
+        // If forceNew is requested, clean up existing socket and auth state
+        // This ensures a fresh QR code is generated
+        if (forceNew) {
+            logger.info({ tenantId }, 'Force new session requested - clearing existing state');
+
+            // Close existing socket if any
+            if (existingSocket) {
+                try {
+                    existingSocket.end(undefined);
+                } catch (e) {
+                    // Ignore cleanup errors
+                    logger.debug({ tenantId, error: e }, 'Error closing existing socket (ignored)');
+                }
+                this.sessions.delete(tenantId);
+            }
+
+            // Clear Redis auth state to force fresh QR generation
+            await clearRedisAuthState(this.redis, tenantId);
+            await this.redis.del(`whatsapp:qr:${tenantId}`);
+            await this.redis.del(`whatsapp:status:${tenantId}`);
+        } else if (existingSocket) {
+            // Not forcing new, but socket exists - check if it's actually usable
             logger.info({ tenantId }, 'Session already active in this instance');
             return;
         }
 
-        logger.info({ tenantId }, 'Initializing session with Redis auth state...');
+        logger.info({ tenantId, forceNew }, 'Initializing session with Redis auth state...');
         await this.redis.set(`whatsapp:status:${tenantId}`, 'CONNECTING');
 
         // Use Redis-based auth state (enables horizontal scaling)
