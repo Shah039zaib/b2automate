@@ -5,6 +5,10 @@ import { logger } from '@b2automate/logger';
 import { tenantContextMiddleware } from './middleware/tenant-context';
 import Redis from 'ioredis';
 import { prisma } from './lib/prisma';
+import {
+    serializerCompiler,
+    validatorCompiler
+} from 'fastify-type-provider-zod';
 
 // ============================================
 // SECURITY: JWT Secret Validation (HARD FAIL)
@@ -30,6 +34,10 @@ if (JWT_SECRET.length < 32) {
 const app = Fastify({
     logger: true
 });
+
+// Set Zod type provider compilers for schema validation
+app.setValidatorCompiler(validatorCompiler);
+app.setSerializerCompiler(serializerCompiler);
 
 // Register Plugins
 app.register(cors);
@@ -160,7 +168,14 @@ startEventProcessor(redis, prisma);
 import { Queue } from 'bullmq';
 import { QUEUE_NAMES, OutboundMessagePayload } from '@b2automate/shared-types';
 import { ScheduledMessageProcessor } from './workers/scheduled-message-processor';
-const outboundQueue = new Queue<OutboundMessagePayload>(QUEUE_NAMES.OUTBOUND_MESSAGES, { connection: redis });
+
+// BullMQ requires proper connection config (Queue also needs maxRetriesPerRequest for consistency)
+const redisConfig = {
+    host: process.env.REDIS_HOST || 'redis',
+    port: parseInt(process.env.REDIS_PORT || '6379'),
+    maxRetriesPerRequest: null as null,
+};
+const outboundQueue = new Queue<OutboundMessagePayload>(QUEUE_NAMES.OUTBOUND_MESSAGES, { connection: redisConfig });
 const scheduledProcessor = new ScheduledMessageProcessor(prisma, outboundQueue);
 scheduledProcessor.start();
 

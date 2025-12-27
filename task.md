@@ -56,6 +56,66 @@ The local TypeScript build completes successfully for all workspaces.
 
 ---
 
+### Production Incident — VPS Deployment Failure (2025-12-27)
+
+> **Status:** ✅ RESOLVED
+> **Environment:** Linux VPS (Docker Compose, Azure VM, 1GB RAM)
+
+#### Root Cause 1: Prisma Query Engine Binary Mismatch
+
+- **Error:** `Prisma Client could not locate the Query Engine for runtime: "linux-musl-openssl-3.0.x"`
+- **Root Cause:** Docker Alpine 3.18+ uses OpenSSL 3.x, but Prisma schema had no binaryTargets configured
+- **File Changed:** `packages/database/prisma/schema.prisma`
+- **Fix Applied:**
+```prisma
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+```
+- **Why Correct:** Forces Prisma to generate Query Engine for both local development (`native`) and Docker Alpine with OpenSSL 3.x
+
+#### Root Cause 2: Fastify Zod Schema Validation Error
+
+- **Error:** `schema is invalid: data/required must be array`
+- **Root Cause:** Zod schemas passed to Fastify routes were not being serialized to JSON Schema format
+- **File Changed:** `apps/api/src/index.ts`
+- **Fix Applied:** Added Zod type provider compilers:
+```typescript
+import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
+app.setValidatorCompiler(validatorCompiler);
+app.setSerializerCompiler(serializerCompiler);
+```
+- **Why Correct:** `fastify-type-provider-zod` requires explicit compiler registration to convert Zod schemas to JSON Schema
+
+#### Root Cause 3: BullMQ Connection Configuration
+
+- **Error:** `BullMQ: Your redis options maxRetriesPerRequest must be null`
+- **Root Cause:** BullMQ Workers and Queues require specific Redis connection config with `maxRetriesPerRequest: null`
+- **Files Changed:**
+  - `apps/api/src/index.ts` - outboundQueue connection
+  - `apps/api/src/workers/event-processor.ts` - Worker and Queue connections
+- **Fix Applied:** Created dedicated connection config objects:
+```typescript
+const redisConfig = {
+    host: process.env.REDIS_HOST || 'redis',
+    port: parseInt(process.env.REDIS_PORT || '6379'),
+    maxRetriesPerRequest: null as null,
+};
+```
+- **Why Correct:** BullMQ uses blocking Redis commands that are incompatible with the default `maxRetriesPerRequest` value
+
+#### Verification Status
+
+| Check | Result |
+|-------|--------|
+| TypeScript Compilation | ✅ Pass |
+| Docker Build | 🔄 Pending VPS verification |
+| API Startup | 🔄 Pending VPS verification |
+| /health Endpoint | 🔄 Pending VPS verification |
+
+---
+
 ## ✅ COMPLETED (Verified & Production-Ready)
 
 ### Authentication & Authorization
