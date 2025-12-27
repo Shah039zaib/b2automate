@@ -4,6 +4,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Check, ChevronRight, Upload, AlertCircle, Loader2, WifiOff, CheckCircle } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useWhatsAppStatus, useStartSession } from '../hooks/useWhatsApp';
@@ -226,12 +227,11 @@ export function Onboarding() {
                                         className="text-center"
                                     >
                                         <div className="bg-white p-4 rounded-xl shadow-sm mb-6 inline-block">
-                                            <img
-                                                src={whatsappStatus.qr!.startsWith('data:')
-                                                    ? whatsappStatus.qr!
-                                                    : `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(whatsappStatus.qr!)}`}
-                                                alt="WhatsApp QR Code"
-                                                className="w-48 h-48"
+                                            <QRCodeSVG
+                                                value={whatsappStatus.qr!}
+                                                size={192}
+                                                level="M"
+                                                includeMargin={false}
                                             />
                                         </div>
                                         <p className="text-center text-slate-600 max-w-sm">

@@ -12,6 +12,8 @@ import { Orders } from './pages/Orders';
 import { Landing } from './pages/Landing';
 import { Pricing } from './pages/Pricing';
 import { CheckoutSuccess } from './pages/CheckoutSuccess';
+import { ForgotPassword } from './pages/ForgotPassword';
+import { ResetPassword } from './pages/ResetPassword';
 import { Loader2 } from 'lucide-react';
 
 // ============================================
@@ -105,7 +107,10 @@ function AppRoutes() {
 
                 {/* Auth routes */}
                 <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
-                <Route path="/onboarding" element={<PublicRoute><Onboarding /></PublicRoute>} />
+                <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
+                <Route path="/reset-password" element={<PublicRoute><ResetPassword /></PublicRoute>} />
+                {/* Onboarding: accessible publicly AND for authenticated users (New Tenant Setup) */}
+                <Route path="/onboarding" element={<Onboarding />} />
 
                 {/* Protected routes - require authentication */}
                 <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />

@@ -3,6 +3,7 @@ import { Card, CardHeader, CardStat } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { MessageCircle, ShoppingCart, TrendingUp, Wifi, WifiOff, Loader2 } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useServices } from '../hooks/useServices';
 import { useOrders } from '../hooks/useOrders';
@@ -188,13 +189,15 @@ export function Dashboard() {
                                 ) : hasQR ? (
                                     <div className="space-y-4">
                                         <div className="bg-white p-3 rounded-lg inline-block">
-                                            <img
-                                                src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(whatsappStatus.qr!)}`}
-                                                alt="WhatsApp QR Code"
-                                                className="w-36 h-36"
+                                            <QRCodeSVG
+                                                value={whatsappStatus.qr!}
+                                                size={144}
+                                                level="M"
+                                                includeMargin={false}
                                             />
                                         </div>
                                         <p className="text-sm text-primary-100">Scan with WhatsApp</p>
+                                        <p className="text-xs text-primary-200">QR expires in 60 seconds</p>
                                     </div>
                                 ) : (
                                     <>

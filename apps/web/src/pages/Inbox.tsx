@@ -67,7 +67,10 @@ export function Inbox() {
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold text-slate-900">Conversations</h2>
+                <div>
+                    <h2 className="text-2xl font-bold text-slate-900">AI Conversation Log</h2>
+                    <p className="text-slate-500 text-sm mt-1">View automated AI interactions with your customers</p>
+                </div>
                 <button
                     onClick={loadConversations}
                     className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
@@ -84,10 +87,20 @@ export function Inbox() {
                 </div>
             )}
 
-            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-sm text-blue-700">
-                    <strong>Note:</strong> This view shows AI conversation logs. Full messaging will be available in a future update.
-                </p>
+            <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg">
+                <div className="flex items-start gap-3">
+                    <Bot className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                        <p className="text-sm font-medium text-blue-900">What you'll see here</p>
+                        <p className="text-sm text-blue-700 mt-1">
+                            This page displays a log of all AI-powered conversations with your customers via WhatsApp.
+                            You can review how the AI responded to customer inquiries, service requests, and order-related questions.
+                        </p>
+                        <p className="text-xs text-blue-600 mt-2">
+                            💡 Full two-way messaging will be available in a future update.
+                        </p>
+                    </div>
+                </div>
             </div>
 
             {conversations.length > 0 ? (
