@@ -18,6 +18,23 @@ import { logger } from '@b2automate/logger';
 const manualPaymentService = new ManualPaymentService(prisma);
 const auditLogger = new AuditLogger(prisma);
 
+// Type definitions
+interface AuthenticatedUser {
+    id: string;
+    tenantId: string;
+    role: string;
+}
+
+interface PaymentListQuery {
+    status?: string;
+    limit?: string;
+    offset?: string;
+}
+
+interface PaymentIdParams {
+    id: string;
+}
+
 // Validation schemas
 const submitPaymentSchema = z.object({
     planId: z.string().uuid(),
@@ -46,12 +63,12 @@ export async function manualPaymentRoutes(app: FastifyInstance) {
     }, async (request: FastifyRequest, reply: FastifyReply) => {
         try {
             const input = submitPaymentSchema.parse(request.body);
-            const user = (request as any).user;
+            const user = request.user as AuthenticatedUser;
 
             const payment = await manualPaymentService.submitPayment({
                 tenantId: user.tenantId,
                 planId: input.planId,
-                method: input.method as any,
+                method: input.method,
                 senderName: input.senderName,
                 senderNumber: input.senderNumber,
                 reference: input.reference,
@@ -82,12 +99,13 @@ export async function manualPaymentRoutes(app: FastifyInstance) {
                 couponApplied: payment.couponCode,
                 message: 'Payment submitted successfully. Please wait for admin approval.'
             });
-        } catch (error: any) {
-            if (error.name === 'ZodError') {
-                return reply.status(400).send({ error: 'Invalid input', details: error.errors });
+        } catch (error: unknown) {
+            const err = error as { name?: string; message?: string; errors?: unknown[] };
+            if (err.name === 'ZodError') {
+                return reply.status(400).send({ error: 'Invalid input', details: err.errors });
             }
-            logger.error({ error: error.message }, 'Manual payment submission failed');
-            return reply.status(400).send({ error: error.message });
+            logger.error({ error: err.message }, 'Manual payment submission failed');
+            return reply.status(400).send({ error: err.message || 'Submission failed' });
         }
     });
 
@@ -102,13 +120,13 @@ export async function manualPaymentRoutes(app: FastifyInstance) {
         preHandler: [requireSuperAdmin]
     }, async (request: FastifyRequest, reply: FastifyReply) => {
         try {
-            const query = request.query as any;
+            const query = request.query as PaymentListQuery;
             const status = query.status?.toUpperCase();
-            const limit = parseInt(query.limit) || 50;
-            const offset = parseInt(query.offset) || 0;
+            const limit = parseInt(query.limit || '50') || 50;
+            const offset = parseInt(query.offset || '0') || 0;
 
             const result = await manualPaymentService.listPayments({
-                status: status as any,
+                status: status as 'PENDING' | 'APPROVED' | 'REJECTED' | undefined,
                 limit,
                 offset
             });
@@ -136,8 +154,9 @@ export async function manualPaymentRoutes(app: FastifyInstance) {
                 limit,
                 offset
             };
-        } catch (error: any) {
-            logger.error({ error: error.message }, 'Failed to list manual payments');
+        } catch (error: unknown) {
+            const err = error as { message?: string };
+            logger.error({ error: err.message }, 'Failed to list manual payments');
             return reply.status(500).send({ error: 'Failed to list payments' });
         }
     });
@@ -149,9 +168,9 @@ export async function manualPaymentRoutes(app: FastifyInstance) {
         preHandler: [requireSuperAdmin]
     }, async (request: FastifyRequest, reply: FastifyReply) => {
         try {
-            const { id } = request.params as { id: string };
+            const { id } = request.params as PaymentIdParams;
             const input = reviewPaymentSchema.parse(request.body || {});
-            const user = (request as any).user;
+            const user = request.user as AuthenticatedUser;
 
             const result = await manualPaymentService.approvePayment({
                 paymentId: id,
@@ -185,9 +204,10 @@ export async function manualPaymentRoutes(app: FastifyInstance) {
                     periodEnd: result.subscription.currentPeriodEnd.toISOString()
                 }
             };
-        } catch (error: any) {
-            logger.error({ error: error.message }, 'Payment approval failed');
-            return reply.status(400).send({ error: error.message });
+        } catch (error: unknown) {
+            const err = error as { message?: string };
+            logger.error({ error: err.message }, 'Payment approval failed');
+            return reply.status(400).send({ error: err.message || 'Approval failed' });
         }
     });
 
@@ -198,9 +218,9 @@ export async function manualPaymentRoutes(app: FastifyInstance) {
         preHandler: [requireSuperAdmin]
     }, async (request: FastifyRequest, reply: FastifyReply) => {
         try {
-            const { id } = request.params as { id: string };
+            const { id } = request.params as PaymentIdParams;
             const input = reviewPaymentSchema.parse(request.body || {});
-            const user = (request as any).user;
+            const user = request.user as AuthenticatedUser;
 
             const payment = await manualPaymentService.rejectPayment({
                 paymentId: id,
@@ -229,9 +249,10 @@ export async function manualPaymentRoutes(app: FastifyInstance) {
                     note: payment.reviewerNote
                 }
             };
-        } catch (error: any) {
-            logger.error({ error: error.message }, 'Payment rejection failed');
-            return reply.status(400).send({ error: error.message });
+        } catch (error: unknown) {
+            const err = error as { message?: string };
+            logger.error({ error: err.message }, 'Payment rejection failed');
+            return reply.status(400).send({ error: err.message || 'Rejection failed' });
         }
     });
 
@@ -242,7 +263,7 @@ export async function manualPaymentRoutes(app: FastifyInstance) {
         preHandler: [requireSuperAdmin]
     }, async (request: FastifyRequest, reply: FastifyReply) => {
         try {
-            const { id } = request.params as { id: string };
+            const { id } = request.params as PaymentIdParams;
             const payment = await manualPaymentService.getPayment(id);
 
             return {
@@ -264,8 +285,9 @@ export async function manualPaymentRoutes(app: FastifyInstance) {
                 createdAt: payment.createdAt.toISOString(),
                 updatedAt: payment.updatedAt.toISOString()
             };
-        } catch (error: any) {
-            return reply.status(404).send({ error: error.message });
+        } catch (error: unknown) {
+            const err = error as { message?: string };
+            return reply.status(404).send({ error: err.message || 'Payment not found' });
         }
     });
 }

@@ -6,8 +6,8 @@ const mockPrisma = {
         findUnique: vi.fn(),
         update: vi.fn()
     },
-    auditLog: { create: vi.fn() }
-} as any;
+    auditLog: { create: vi.fn().mockResolvedValue({}) }
+} as unknown as any;
 
 describe('Order Approval Flow', () => {
     let service: OrdersService;
@@ -18,7 +18,11 @@ describe('Order Approval Flow', () => {
     });
 
     it('should approve PENDING order', async () => {
-        mockPrisma.order.findUnique.mockResolvedValue({ id: 'o-1', status: 'PENDING_APPROVAL' });
+        mockPrisma.order.findUnique.mockResolvedValue({
+            id: 'o-1',
+            tenantId: 'tenant-1',
+            status: 'PENDING_APPROVAL'
+        });
         mockPrisma.order.update.mockResolvedValue({ id: 'o-1', status: 'APPROVED' });
 
         await service.approveOrder('tenant-1', 'o-1', 'admin-1');
@@ -34,7 +38,11 @@ describe('Order Approval Flow', () => {
     });
 
     it('should REJECT approval if order is DRAFT', async () => {
-        mockPrisma.order.findUnique.mockResolvedValue({ id: 'o-1', status: 'DRAFT' });
+        mockPrisma.order.findUnique.mockResolvedValue({
+            id: 'o-1',
+            tenantId: 'tenant-1',
+            status: 'DRAFT'
+        });
 
         await expect(service.approveOrder('tenant-1', 'o-1', 'admin-1'))
             .rejects.toThrow('Order is not pending approval');

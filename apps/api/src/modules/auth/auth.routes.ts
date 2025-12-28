@@ -7,6 +7,35 @@ import z from 'zod';
 const auditLogger = new AuditLogger(prisma);
 const authService = new AuthService(prisma, auditLogger);
 
+// Type definitions
+interface RegisterBody {
+    email: string;
+    password: string;
+    tenantName: string;
+}
+
+interface LoginBody {
+    email: string;
+    password: string;
+}
+
+interface RefreshBody {
+    refreshToken: string;
+}
+
+interface AuthenticatedUser {
+    id: string;
+    email: string;
+    role: string;
+    tenantId: string;
+}
+
+interface PrismaError {
+    code?: string;
+    name?: string;
+    message?: string;
+}
+
 // Token expiry constants
 const ACCESS_TOKEN_EXPIRY = '15m';  // 15 minutes
 const REFRESH_TOKEN_EXPIRY = '7d';  // 7 days
@@ -22,7 +51,7 @@ export async function authRoutes(app: FastifyInstance) {
             })
         }
     }, async (req, reply) => {
-        const { email, password, tenantName } = req.body as any;
+        const { email, password, tenantName } = req.body as RegisterBody;
 
         // Defensive logging: track registration attempts
         req.log.info({ email, tenantName }, 'Registration attempt started');
@@ -31,7 +60,8 @@ export async function authRoutes(app: FastifyInstance) {
             const result = await authService.registerTenant({ email, password, tenantName });
             req.log.info({ email, tenantId: result.tenant.id }, 'Registration completed successfully');
             return reply.code(201).send(result);
-        } catch (err: any) {
+        } catch (error: unknown) {
+            const err = error as PrismaError;
             // Enhanced error logging for debugging
             req.log.error({
                 email,
@@ -98,7 +128,7 @@ export async function authRoutes(app: FastifyInstance) {
             })
         }
     }, async (req, reply) => {
-        const { email, password } = req.body as any;
+        const { email, password } = req.body as LoginBody;
         try {
             const user = await authService.login({ email, password });
 
@@ -125,7 +155,7 @@ export async function authRoutes(app: FastifyInstance) {
                 refreshToken,
                 expiresIn: 900               // 15 minutes in seconds
             };
-        } catch (err) {
+        } catch (error: unknown) {
             // Audit Log Login Failure (if we could identify tenant)
             return reply.code(401).send({ error: 'Invalid credentials' });
         }
@@ -139,7 +169,7 @@ export async function authRoutes(app: FastifyInstance) {
             })
         }
     }, async (req, reply) => {
-        const { refreshToken } = req.body as any;
+        const { refreshToken } = req.body as RefreshBody;
 
         try {
             // Verify refresh token
@@ -195,7 +225,7 @@ export async function authRoutes(app: FastifyInstance) {
     app.post('/logout', async (req, reply) => {
         try {
             await app.authenticate(req, reply);
-            const user = req.user as any;
+            const user = req.user as AuthenticatedUser;
 
             // SECURITY: Blacklist the token to prevent reuse
             const authHeader = req.headers.authorization;

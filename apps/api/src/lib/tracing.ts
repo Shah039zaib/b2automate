@@ -212,7 +212,7 @@ export async function withSpan<T>(
  * Add to your Fastify instance with: app.addHook('onRequest', createRequestTraceHook())
  */
 export function createRequestTraceHook() {
-    return async (request: any, reply: any) => {
+    return async (request: { headers: Record<string, string>; method: string; url: string; routerPath?: string; traceSpan?: Span }, reply: { raw: { on: (event: string, cb: () => void) => void }; statusCode: number }) => {
         const tracer = getTracer();
         const parentContext = tracer.extract(request.headers);
         const span = tracer.startSpan(`HTTP ${request.method} ${request.routerPath || request.url}`, parentContext || undefined);

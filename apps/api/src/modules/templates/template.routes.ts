@@ -19,8 +19,51 @@ import z from 'zod';
 
 const auditLogger = new AuditLogger(prisma);
 
-// Cast for models added in Phase 6B (safe after migration)
-const db = prisma as any;
+// Type definitions
+interface AuthenticatedUser {
+    id: string;
+    email: string;
+    role: string;
+    tenantId: string;
+}
+
+interface TemplateBody {
+    name?: string;
+    content?: string;
+}
+
+interface TemplateIdParams {
+    id: string;
+}
+
+interface TemplateUpdates {
+    name?: string;
+    content?: string;
+    variables?: string[];
+}
+
+// Extended Prisma client for Phase 6B models  
+interface MessageTemplate {
+    id: string;
+    name: string;
+    content: string;
+    variables: string[];
+    createdAt?: Date;
+    updatedAt?: Date;
+}
+
+const db = prisma as unknown as {
+    messageTemplate: {
+        findFirst: (args: { where: Record<string, unknown> }) => Promise<MessageTemplate | null>;
+        findMany: (args: unknown) => Promise<MessageTemplate[]>;
+        create: (args: unknown) => Promise<MessageTemplate>;
+        update: (args: unknown) => Promise<MessageTemplate>;
+        delete: (args: unknown) => Promise<unknown>;
+    };
+    scheduledMessage: {
+        count: (args: unknown) => Promise<number>;
+    };
+};
 
 // Regex to extract {{variable}} placeholders
 const VARIABLE_REGEX = /\{\{(\w+)\}\}/g;
@@ -69,35 +112,35 @@ export async function templateRoutes(app: FastifyInstance) {
         }
     }, async (req, reply) => {
         const tenantId = req.tenantId!;
-        const userId = (req.user as any).id;
-        const { name, content } = req.body as any;
+        const user = req.user as AuthenticatedUser;
+        const body = req.body as { name: string; content: string };
 
         // Check for duplicate name
         const existing = await db.messageTemplate.findFirst({
-            where: { tenantId, name }
+            where: { tenantId, name: body.name }
         });
         if (existing) {
             return reply.code(400).send({ error: 'Template with this name already exists' });
         }
 
         // Extract variables from content
-        const variables = extractVariables(content);
+        const variables = extractVariables(body.content);
 
         const template = await db.messageTemplate.create({
             data: {
                 tenantId,
-                name,
-                content,
+                name: body.name,
+                content: body.content,
                 variables,
-                createdBy: userId
+                createdBy: user.id
             }
         });
 
         await auditLogger.log({
             tenantId,
-            actorUserId: userId,
+            actorUserId: user.id,
             eventType: 'TEMPLATE_CREATED',
-            metadata: { id: template.id, name, variableCount: variables.length },
+            metadata: { id: template.id, name: body.name, variableCount: variables.length },
             ipAddress: req.ip
         });
 
@@ -173,9 +216,9 @@ export async function templateRoutes(app: FastifyInstance) {
         }
     }, async (req, reply) => {
         const tenantId = req.tenantId!;
-        const userId = (req.user as any).id;
-        const { id } = req.params as { id: string };
-        const { name, content } = req.body as any;
+        const user = req.user as AuthenticatedUser;
+        const { id } = req.params as TemplateIdParams;
+        const { name, content } = req.body as TemplateBody;
 
         const existing = await db.messageTemplate.findFirst({
             where: { id, tenantId }
@@ -188,7 +231,7 @@ export async function templateRoutes(app: FastifyInstance) {
         // If name changed, check for duplicate
         if (name && name !== existing.name) {
             const duplicate = await db.messageTemplate.findFirst({
-                where: { tenantId, name, id: { not: id } }
+                where: { tenantId, name, id: { $ne: id } as unknown as string }
             });
             if (duplicate) {
                 return reply.code(400).send({ error: 'Template with this name already exists' });
@@ -196,7 +239,7 @@ export async function templateRoutes(app: FastifyInstance) {
         }
 
         // Re-extract variables if content changed
-        const updates: any = {};
+        const updates: TemplateUpdates = {};
         if (name) updates.name = name;
         if (content) {
             updates.content = content;
@@ -210,7 +253,7 @@ export async function templateRoutes(app: FastifyInstance) {
 
         await auditLogger.log({
             tenantId,
-            actorUserId: userId,
+            actorUserId: user.id,
             eventType: 'TEMPLATE_UPDATED',
             metadata: { id, updates: Object.keys(updates) },
             ipAddress: req.ip
@@ -234,8 +277,8 @@ export async function templateRoutes(app: FastifyInstance) {
         }
     }, async (req, reply) => {
         const tenantId = req.tenantId!;
-        const userId = (req.user as any).id;
-        const { id } = req.params as { id: string };
+        const user = req.user as AuthenticatedUser;
+        const { id } = req.params as TemplateIdParams;
 
         const existing = await db.messageTemplate.findFirst({
             where: { id, tenantId }
@@ -260,7 +303,7 @@ export async function templateRoutes(app: FastifyInstance) {
 
         await auditLogger.log({
             tenantId,
-            actorUserId: userId,
+            actorUserId: user.id,
             eventType: 'TEMPLATE_DELETED',
             metadata: { id, name: existing.name },
             ipAddress: req.ip

@@ -7,6 +7,42 @@ import bcrypt from 'bcrypt';
 
 const SALT_ROUNDS = 10;
 
+// Type definitions
+interface TenantSettingsBody {
+    name?: string;
+    businessPhone?: string;
+    businessAddress?: string;
+    businessDescription?: string;
+    isAiEnabled?: boolean;
+    isWhatsappEnabled?: boolean;
+}
+
+interface TenantSettingsUpdates {
+    name?: string;
+    businessPhone?: string;
+    businessAddress?: string;
+    businessDescription?: string;
+    isAiEnabled?: boolean;
+    isWhatsappEnabled?: boolean;
+}
+
+interface AiTrendsQuery {
+    filter?: string;
+}
+
+interface AuthenticatedUser {
+    id: string;
+    email: string;
+    role: string;
+    tenantId: string;
+}
+
+interface AuditLogMetadata {
+    input?: string;
+    output?: string;
+    customerJid?: string;
+}
+
 export async function tenantRoutes(app: FastifyInstance) {
     // All routes require:
     // 1. Authentication (via app.authenticate decorator from index.ts)
@@ -44,16 +80,16 @@ export async function tenantRoutes(app: FastifyInstance) {
         return tenant;
     });
 
-    // Update tenant settings
     app.patch('/settings', async (req, reply) => {
-        const body = req.body as any;
+        const body = req.body as TenantSettingsBody;
 
-        const allowedFields = ['name', 'businessPhone', 'businessAddress', 'businessDescription', 'isAiEnabled', 'isWhatsappEnabled'];
-        const updates: Record<string, any> = {};
+        const allowedFields = ['name', 'businessPhone', 'businessAddress', 'businessDescription', 'isAiEnabled', 'isWhatsappEnabled'] as const;
+        const updates: TenantSettingsUpdates = {};
 
         for (const field of allowedFields) {
-            if (body[field] !== undefined) {
-                updates[field] = body[field];
+            const key = field as keyof TenantSettingsBody;
+            if (body[key] !== undefined) {
+                (updates as Record<string, unknown>)[field] = body[key];
             }
         }
 
@@ -162,10 +198,12 @@ export async function tenantRoutes(app: FastifyInstance) {
      * Returns tenant's daily AI usage for chart display
      */
     app.get('/ai-trends', async (req, reply) => {
-        const filter = (req.query as any).filter === '30d' ? '30d' : '7d';
+        const query = req.query as AiTrendsQuery;
+        const filter = query.filter === '30d' ? '30d' : '7d';
 
-        // Import service dynamically (cast to any for pre-migration compatibility)
-        const mod = await import('../../services/ai-usage.service' as any);
+        // Import service dynamically (cast for pre-migration compatibility)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const mod = await import('../../services/ai-usage.service' as string);
         const aiUsageService = new mod.AiUsageService(prisma);
 
         return aiUsageService.getTenantDailyTrends(req.tenantId!, filter);
@@ -346,10 +384,10 @@ export async function tenantRoutes(app: FastifyInstance) {
         return reply.code(201).send(user);
     });
 
-    // Delete user
     app.delete('/users/:id', async (req, reply) => {
         const { id } = req.params as { id: string };
-        const actorId = (req.user as any)?.id;
+        const currentUser = req.user as AuthenticatedUser | undefined;
+        const actorId = currentUser?.id;
 
         // Cannot delete yourself
         if (id === actorId) {
@@ -357,11 +395,11 @@ export async function tenantRoutes(app: FastifyInstance) {
         }
 
         // Verify user belongs to tenant
-        const user = await prisma.user.findFirst({
+        const targetUser = await prisma.user.findFirst({
             where: { id, tenantId: req.tenantId }
         });
 
-        if (!user) {
+        if (!targetUser) {
             return reply.code(404).send({ error: 'User not found' });
         }
 
@@ -494,14 +532,17 @@ export async function tenantRoutes(app: FastifyInstance) {
         });
 
         // Extract unique customer JIDs from metadata
-        const conversations = logs.map(log => ({
-            id: log.id,
-            type: log.eventType,
-            input: (log.metadata as any)?.input || '',
-            output: (log.metadata as any)?.output || '',
-            customerJid: (log.metadata as any)?.customerJid || 'unknown',
-            timestamp: log.timestamp
-        }));
+        const conversations = logs.map(log => {
+            const metadata = log.metadata as AuditLogMetadata | null;
+            return {
+                id: log.id,
+                type: log.eventType,
+                input: metadata?.input || '',
+                output: metadata?.output || '',
+                customerJid: metadata?.customerJid || 'unknown',
+                timestamp: log.timestamp
+            };
+        });
 
         return conversations;
     });

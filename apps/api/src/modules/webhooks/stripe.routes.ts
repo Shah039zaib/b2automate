@@ -250,7 +250,8 @@ export async function stripeWebhookRoutes(app: FastifyInstance) {
                     request.body as Buffer,
                     signature
                 );
-            } catch (err: any) {
+            } catch (error: unknown) {
+                const err = error as { message?: string };
                 logger.warn({ error: err.message }, 'Webhook signature verification failed');
                 return reply.status(400).send({ error: 'Signature verification failed' });
             }
@@ -294,8 +295,9 @@ export async function stripeWebhookRoutes(app: FastifyInstance) {
             await markEventProcessed(event.id, event.type);
 
             return reply.status(200).send({ received: true });
-        } catch (error: any) {
-            logger.error({ error: error.message }, 'Webhook processing error');
+        } catch (error: unknown) {
+            const err = error as { message?: string };
+            logger.error({ error: err.message }, 'Webhook processing error');
             return reply.status(500).send({ error: 'Webhook processing failed' });
         }
     });

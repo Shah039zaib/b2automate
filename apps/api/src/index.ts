@@ -122,7 +122,9 @@ import { AuditLogger } from './services/audit-logger';
 // Lazy-initialized after prisma is ready
 let blacklistAuthService: AuthService | null = null;
 
-app.decorate('authenticate', async (request: any, reply: any) => {
+import { FastifyRequest, FastifyReply } from 'fastify';
+
+app.decorate('authenticate', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
         await request.jwtVerify();
 
@@ -133,8 +135,9 @@ app.decorate('authenticate', async (request: any, reply: any) => {
 
         // CRITICAL FIX: Set tenantId from verified JWT
         // Global middleware runs on 'onRequest' (before auth), so we must populate it here
-        if (request.user && request.user.tenantId) {
-            request.tenantId = request.user.tenantId;
+        const user = request.user as { tenantId?: string } | undefined;
+        if (user && user.tenantId) {
+            request.tenantId = user.tenantId;
         }
 
         // SECURITY: Check if token was revoked via logout

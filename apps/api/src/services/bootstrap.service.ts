@@ -64,15 +64,16 @@ export class BootstrapService {
             // Try to query a core table - if it fails with P2021, schema is missing
             await this.prisma.$queryRaw`SELECT 1 FROM "tenants" LIMIT 1`;
             return true;
-        } catch (error: any) {
+        } catch (error: unknown) {
             // P2021 = Table does not exist
             // P2010 = Raw query failed (table missing)
-            if (error?.code === 'P2021' || error?.code === 'P2010' || 
-                error?.message?.includes('does not exist')) {
+            const prismaError = error as { code?: string; message?: string };
+            if (prismaError?.code === 'P2021' || prismaError?.code === 'P2010' ||
+                prismaError?.message?.includes('does not exist')) {
                 return false;
             }
             // Other errors (permission, etc.) - assume schema exists
-            logger.warn({ error: error.message }, 'Schema check returned unexpected error');
+            logger.warn({ error: prismaError.message }, 'Schema check returned unexpected error');
             return true;
         }
     }
@@ -89,7 +90,7 @@ export class BootstrapService {
     async ensureSchemaExists(): Promise<{ created: boolean; error?: string }> {
         // Check if schema already exists
         const schemaExists = await this.checkSchemaExists();
-        
+
         if (schemaExists) {
             logger.debug('Database schema already exists, skipping creation');
             this.schemaInitialized = true;
@@ -97,41 +98,42 @@ export class BootstrapService {
         }
 
         logger.warn('Database schema missing - running prisma db push to create tables');
-        
+
         try {
             // Run prisma db push to create all tables
             // --skip-generate: don't regenerate client (already done in Docker build)
             // --accept-data-loss: not needed since DB is empty, but included for safety
             const schemaPath = './packages/database/prisma/schema.prisma';
             const command = `npx prisma db push --schema=${schemaPath} --skip-generate --accept-data-loss`;
-            
+
             logger.info({ command }, 'Executing prisma db push...');
-            
+
             const { stdout, stderr } = await execAsync(command, {
                 timeout: 120000, // 2 minute timeout
                 cwd: process.cwd()
             });
-            
+
             if (stdout) {
                 logger.info({ stdout }, 'prisma db push output');
             }
             if (stderr && !stderr.includes('warn')) {
                 logger.warn({ stderr }, 'prisma db push stderr');
             }
-            
+
             // Verify schema was created
             const verifySchema = await this.checkSchemaExists();
             if (!verifySchema) {
                 throw new Error('Schema creation failed - tables still missing after db push');
             }
-            
+
             logger.info('✅ Database schema created successfully (first-time setup)');
             this.schemaInitialized = true;
             return { created: true };
-            
-        } catch (error: any) {
-            const errorMsg = `Failed to create database schema: ${error.message}`;
-            logger.error({ error: error.message, stderr: error.stderr }, errorMsg);
+
+        } catch (error: unknown) {
+            const err = error as { message?: string; stderr?: string };
+            const errorMsg = `Failed to create database schema: ${err.message}`;
+            logger.error({ error: err.message, stderr: err.stderr }, errorMsg);
             return { created: false, error: errorMsg };
         }
     }
@@ -154,7 +156,7 @@ export class BootstrapService {
             } else {
                 logger.debug('SystemSettings already exists, skipping creation');
             }
-        } catch (error) {
+        } catch (error: unknown) {
             // Log but don't throw - let server continue
             logger.error({ error }, 'Failed to ensure SystemSettings - will retry on access');
         }
@@ -170,13 +172,13 @@ export class BootstrapService {
 
             if (!existing) {
                 await this.prisma.growthSettings.create({
-                    data: GROWTH_SETTINGS_DEFAULTS as any
+                    data: GROWTH_SETTINGS_DEFAULTS
                 });
                 logger.info('GrowthSettings created with safe defaults (Analytics: OFF, Coupon: OFF)');
             } else {
                 logger.debug('GrowthSettings already exists, skipping creation');
             }
-        } catch (error) {
+        } catch (error: unknown) {
             // Log but don't throw - let server continue
             logger.error({ error }, 'Failed to ensure GrowthSettings - will retry on access');
         }
@@ -197,9 +199,10 @@ export class BootstrapService {
         try {
             await this.prisma.$queryRaw`SELECT 1`;
             logger.info('Database connection verified');
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const err = error as { message?: string };
             const msg = 'Database connection failed - bootstrap aborted';
-            logger.error({ error: error.message }, msg);
+            logger.error({ error: err.message }, msg);
             errors.push(msg);
             return { success: false, errors };
         }
@@ -213,24 +216,27 @@ export class BootstrapService {
             } else if (schemaResult.created) {
                 logger.info('Schema was created on this startup (first-time setup)');
             }
-        } catch (error: any) {
-            const msg = `Schema check failed: ${error.message}`;
-            logger.error({ error: error.message }, msg);
+        } catch (error: unknown) {
+            const err = error as { message?: string };
+            const msg = `Schema check failed: ${err.message}`;
+            logger.error({ error: err.message }, msg);
             errors.push(msg);
         }
 
         // Step 3: Bootstrap SystemSettings
         try {
             await this.ensureSystemSettings();
-        } catch (error: any) {
-            errors.push(`SystemSettings: ${error.message}`);
+        } catch (error: unknown) {
+            const err = error as { message?: string };
+            errors.push(`SystemSettings: ${err.message}`);
         }
 
         // Step 4: Bootstrap GrowthSettings
         try {
             await this.ensureGrowthSettings();
-        } catch (error: any) {
-            errors.push(`GrowthSettings: ${error.message}`);
+        } catch (error: unknown) {
+            const err = error as { message?: string };
+            errors.push(`GrowthSettings: ${err.message}`);
         }
 
         if (errors.length > 0) {
