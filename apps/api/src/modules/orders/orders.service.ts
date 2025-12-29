@@ -8,14 +8,35 @@ export class OrdersService {
         logger.info({ tenantId, customerJid, items }, 'Creating Draft Order');
 
         // 1. Calculate Totals (Backend Price Source of Truth)
+        // OPTIMIZED: Use single batch query instead of N queries
+        const serviceIds = items.map(item => item.serviceId);
+
+        // Fetch all services in one query
+        const services = await this.prisma.service.findMany({
+            where: {
+                id: { in: serviceIds },
+                tenantId,
+                isActive: true
+            }
+        });
+
+        // Build service lookup map for O(1) access
+        const serviceMap = new Map(services.map(s => [s.id, s]));
+
+        // Validate all services exist and are active
+        for (const item of items) {
+            const service = serviceMap.get(item.serviceId);
+            if (!service) {
+                throw new Error(`Service ${item.serviceId} is invalid or inactive`);
+            }
+        }
+
+        // Calculate totals and build order items
         let totalAmount = 0;
         const orderItemsData = [];
 
         for (const item of items) {
-            const service = await this.prisma.service.findUnique({ where: { id: item.serviceId, tenantId } });
-            if (!service || !service.isActive) {
-                throw new Error(`Service ${item.serviceId} is invalid or inactive`);
-            }
+            const service = serviceMap.get(item.serviceId)!; // Safe - validated above
             const lineTotal = Number(service.price) * item.quantity;
             totalAmount += lineTotal;
 

@@ -118,20 +118,15 @@ import { manualPaymentRoutes } from './modules/manual-payments/manual-payment.ro
 // Includes blacklist check for revoked tokens (Issue 3 fix)
 import { AuthService } from './modules/auth/auth.service';
 import { AuditLogger } from './services/audit-logger';
-
-// Lazy-initialized after prisma is ready
-let blacklistAuthService: AuthService | null = null;
-
 import { FastifyRequest, FastifyReply } from 'fastify';
+
+// CRITICAL: Initialize AuthService at startup to prevent race conditions
+// (Previously was lazy-initialized which could create multiple instances on concurrent requests)
+const blacklistAuthService = new AuthService(prisma, new AuditLogger(prisma));
 
 app.decorate('authenticate', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
         await request.jwtVerify();
-
-        // Initialize AuthService lazily on first request
-        if (!blacklistAuthService) {
-            blacklistAuthService = new AuthService(prisma, new AuditLogger(prisma));
-        }
 
         // CRITICAL FIX: Set tenantId from verified JWT
         // Global middleware runs on 'onRequest' (before auth), so we must populate it here

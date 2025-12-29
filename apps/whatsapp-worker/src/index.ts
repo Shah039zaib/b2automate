@@ -97,10 +97,20 @@ async function startWorker() {
             logger.info({ type, tenantId, attempt: job.attemptsMade + 1 }, 'Processing command');
 
             try {
+                // CRITICAL: Use discriminated union type guards instead of (as any)
                 if (type === 'START_SESSION') {
-                    // Extract forceNew flag from job data (defaults to false for backward compatibility)
-                    const forceNew = (job.data as any).forceNew ?? false;
+                    const forceNew = job.data.type === 'START_SESSION' ? (job.data.forceNew ?? false) : false;
                     await sessionManager.startSession(tenantId, forceNew);
+                } else if (type === 'REQUEST_PAIRING_CODE') {
+                    // Type guard: ensures job.data has phoneNumber property
+                    if (job.data.type === 'REQUEST_PAIRING_CODE') {
+                        const { phoneNumber } = job.data;
+                        if (phoneNumber) {
+                            await sessionManager.requestPairingCode(tenantId, phoneNumber);
+                        } else {
+                            logger.warn({ tenantId }, 'REQUEST_PAIRING_CODE missing phoneNumber');
+                        }
+                    }
                 } else if (type === 'STOP_SESSION') {
                     await sessionManager.getSession(tenantId).then(sock => sock?.end(undefined));
                     await sessionManager.cleanupSession(tenantId);
@@ -226,13 +236,30 @@ async function startWorker() {
                 await sock.sendMessage(jid, msgContent);
 
                 // 8. Mark as "unavailable" after sending (natural behavior)
-                setTimeout(async () => {
-                    try {
-                        await sock.sendPresenceUpdate('unavailable', jid);
-                    } catch (e) {
-                        // Ignore presence update errors
-                    }
-                }, 2000);
+                // IMPROVED: Track presence update promise with timeout
+                const presenceUpdatePromise = new Promise<void>((resolve) => {
+                    setTimeout(async () => {
+                        try {
+                            await Promise.race([
+                                sock.sendPresenceUpdate('unavailable', jid),
+                                new Promise((_, reject) =>
+                                    setTimeout(() => reject(new Error('Presence update timeout')), 5000)
+                                ),
+                            ]);
+                            logger.debug({ tenantId, jid }, 'Presence set to unavailable');
+                        } catch (err) {
+                            // Log but don't fail the job
+                            logger.debug({ tenantId, jid, err }, 'Failed to set presence to unavailable');
+                        } finally {
+                            resolve();
+                        }
+                    }, 2000);
+                });
+
+                // Don't await - let it complete in background, but it's tracked
+                presenceUpdatePromise.catch(() => {
+                    // Already logged above
+                });
 
                 logger.debug({ tenantId, type, charCount, typingDelay }, 'Message sent with human-like delays');
 

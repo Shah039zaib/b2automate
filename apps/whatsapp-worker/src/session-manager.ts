@@ -25,10 +25,26 @@ export class SessionManager {
     private sessions: Map<string, WASocket> = new Map();
     private redis: Redis;
     private inboundQueue: Queue<InboundEventPayload>;
+    // Track event listeners for cleanup
+    private eventListeners: Map<string, Array<{ event: string; handler: any }>> = new Map();
+    // Track in-flight reconnection attempts to prevent race conditions
+    private reconnecting: Map<string, Promise<void>> = new Map();
 
     constructor(redisUrl: string, inboundQueue: Queue<InboundEventPayload>) {
         this.redis = new Redis(redisUrl);
         this.inboundQueue = inboundQueue;
+    }
+
+    /**
+     * Remove all event listeners for a tenant to prevent memory leaks
+     */
+    private removeEventListeners(tenantId: string, sock: WASocket) {
+        const listeners = this.eventListeners.get(tenantId) || [];
+        for (const { event, handler } of listeners) {
+            sock.ev.off(event as any, handler);
+        }
+        this.eventListeners.delete(tenantId);
+        logger.debug({ tenantId, count: listeners.length }, 'Removed event listeners');
     }
 
     /**
@@ -87,6 +103,9 @@ export class SessionManager {
             return;
         }
 
+        // CRITICAL: Track whether WE acquired the lock (for proper cleanup in finally)
+        const weOwnLock = lockAcquired === 'OK';
+
         try {
             const existingSocket = this.sessions.get(tenantId);
 
@@ -98,6 +117,8 @@ export class SessionManager {
                 // Close existing socket if any
                 if (existingSocket) {
                     try {
+                        // CRITICAL: Remove event listeners before closing to prevent memory leak
+                        this.removeEventListeners(tenantId, existingSocket);
                         existingSocket.end(undefined);
                     } catch (e) {
                         // Ignore cleanup errors
@@ -133,10 +154,15 @@ export class SessionManager {
 
             logger.info({ tenantId }, 'Baileys socket created, attaching event listeners...');
 
-            // Event Listeners
-            sock.ev.on('creds.update', saveCreds);
+            // Initialize listener tracking for this tenant
+            const listeners: Array<{ event: string; handler: any }> = [];
 
-            sock.ev.on('connection.update', async (update: Partial<ConnectionState>) => {
+            // Event Listeners - Track all handlers for cleanup
+            const credsHandler = saveCreds;
+            sock.ev.on('creds.update', credsHandler);
+            listeners.push({ event: 'creds.update', handler: credsHandler });
+
+            const connectionHandler = async (update: Partial<ConnectionState>) => {
                 const { connection, lastDisconnect, qr } = update;
 
                 // Log ALL connection updates for debugging
@@ -152,37 +178,69 @@ export class SessionManager {
                 if (qr) {
                     logger.info({ tenantId, qrLength: qr.length }, 'QR Code generated - storing in Redis');
                     await this.redis.set(`whatsapp:qr:${tenantId}`, qr, 'EX', 60);
-                    await this.redis.set(`whatsapp:status:${tenantId}`, 'QR_READY');
+                    // Only set QR_READY if not already in pairing code mode
+                    const currentStatus = await this.redis.get(`whatsapp:status:${tenantId}`);
+                    if (currentStatus !== 'PAIRING_CODE_READY') {
+                        await this.redis.set(`whatsapp:status:${tenantId}`, 'QR_READY');
+                    }
                 }
 
                 if (connection === 'close') {
                     const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
                     logger.warn({ tenantId, error: lastDisconnect?.error, shouldReconnect }, 'Connection closed');
 
+                    // CRITICAL: Clean up event listeners before removing socket
+                    this.removeEventListeners(tenantId, sock);
                     this.sessions.delete(tenantId);
                     await this.redis.set(`whatsapp:status:${tenantId}`, 'DISCONNECTED');
                     await this.redis.del(lockKey); // Release lock on disconnect
 
                     if (shouldReconnect) {
-                        // SAFETY: Wrap async reconnect in try/catch to prevent silent crashes
-                        setTimeout(() => {
-                            this.startSession(tenantId).catch((err) => {
-                                logger.error({ tenantId, err }, 'Failed to reconnect session');
-                            });
-                        }, 5000);
+                        // CRITICAL: Prevent concurrent reconnect attempts for same tenant
+                        const existingReconnect = this.reconnecting.get(tenantId);
+                        if (existingReconnect) {
+                            logger.info({ tenantId }, 'Reconnection already in progress, skipping duplicate attempt');
+                            return;
+                        }
+
+                        // Track this reconnection attempt
+                        const reconnectPromise = new Promise<void>((resolve) => {
+                            setTimeout(async () => {
+                                try {
+                                    await this.startSession(tenantId);
+                                    logger.info({ tenantId }, 'Reconnection successful');
+                                } catch (err) {
+                                    logger.error({ tenantId, err }, 'Failed to reconnect session');
+                                } finally {
+                                    // Always clean up tracking
+                                    this.reconnecting.delete(tenantId);
+                                    resolve();
+                                }
+                            }, 5000);
+                        });
+
+                        this.reconnecting.set(tenantId, reconnectPromise);
                     } else {
                         await this.cleanupSession(tenantId);
                     }
                 } else if (connection === 'open') {
                     logger.info({ tenantId }, 'Connection opened successfully');
                     await this.redis.set(`whatsapp:status:${tenantId}`, 'CONNECTED');
+                    // CLEANUP: Delete both QR and pairing code after successful connection
                     await this.redis.del(`whatsapp:qr:${tenantId}`);
+                    await this.redis.del(`whatsapp:pairingCode:${tenantId}`);
                     await this.redis.del(lockKey); // Release lock on success
                 }
-            });
+            };
+            sock.ev.on('connection.update', connectionHandler);
+            listeners.push({ event: 'connection.update', handler: connectionHandler });
 
-            sock.ev.on('messages.upsert', async (m) => {
+            const messagesHandler = async (m: any) => {
                 logger.debug({ tenantId, count: m.messages.length }, 'Messages received');
+
+                // PERFORMANCE: Collect all messages for batch processing
+                const batchJobs: Array<{ name: string; data: any }> = [];
+
                 // Push to Queue for API to process
                 for (const msg of m.messages) {
                     if (!msg.key.fromMe) { // Only inbound
@@ -230,27 +288,60 @@ export class SessionManager {
                             logger.warn({ tenantId, msgId: msg.key.id, err: mediaErr }, 'Media processing failed - continuing without media');
                         }
 
-                        this.inboundQueue.add('message', {
-                            tenantId,
-                            event: 'message',
+                        // Add to batch instead of individual queue operations
+                        batchJobs.push({
+                            name: 'message',
                             data: {
-                                ...msg,
-                                // Attach media metadata if processed
-                                _mediaData: mediaData
+                                tenantId,
+                                event: 'message',
+                                data: {
+                                    ...msg,
+                                    // Attach media metadata if processed
+                                    _mediaData: mediaData
+                                }
                             }
                         });
                     }
                 }
-            });
+
+                // PERFORMANCE: Batch add all messages at once (reduces Redis overhead)
+                if (batchJobs.length > 0) {
+                    try {
+                        await this.inboundQueue.addBulk(batchJobs);
+                        logger.debug({ tenantId, count: batchJobs.length }, 'Batch added messages to queue');
+                    } catch (err) {
+                        logger.error({ tenantId, count: batchJobs.length, err }, 'Failed to batch add messages');
+                        // Fallback: add individually if batch fails
+                        for (const job of batchJobs) {
+                            await this.inboundQueue.add(job.name, job.data);
+                        }
+                    }
+                }
+            };
+            sock.ev.on('messages.upsert', messagesHandler);
+            listeners.push({ event: 'messages.upsert', handler: messagesHandler });
+
+            // Store all listeners for this tenant for later cleanup
+            this.eventListeners.set(tenantId, listeners);
 
             this.sessions.set(tenantId, sock);
             logger.info({ tenantId }, 'Session started successfully, waiting for QR...');
 
         } catch (err) {
             logger.error({ tenantId, err }, 'Failed to start session');
-            await this.redis.del(lockKey);
             await this.redis.set(`whatsapp:status:${tenantId}`, 'DISCONNECTED');
             throw err;
+        } finally {
+            // CRITICAL: Always release lock if we acquired it
+            // Lock is also deleted on connection success/close, but this ensures cleanup on errors
+            if (weOwnLock) {
+                const currentLock = await this.redis.get(lockKey);
+                // Only delete if lock still exists (might have been deleted by connection handler)
+                if (currentLock) {
+                    await this.redis.del(lockKey);
+                    logger.debug({ tenantId }, 'Released session start lock in finally block');
+                }
+            }
         }
     }
 
@@ -261,6 +352,8 @@ export class SessionManager {
     async stopSession(tenantId: string): Promise<void> {
         const sock = this.sessions.get(tenantId);
         if (sock) {
+            // CRITICAL: Remove event listeners before closing to prevent memory leak
+            this.removeEventListeners(tenantId, sock);
             sock.end(undefined);
             this.sessions.delete(tenantId);
             await this.redis.set(`whatsapp:status:${tenantId}`, 'DISCONNECTED');
@@ -272,6 +365,7 @@ export class SessionManager {
         await clearRedisAuthState(this.redis, tenantId);
         await this.redis.del(`whatsapp:status:${tenantId}`);
         await this.redis.del(`whatsapp:qr:${tenantId}`);
+        await this.redis.del(`whatsapp:pairingCode:${tenantId}`);
         await this.redis.del(`whatsapp:claim:${tenantId}`);
         await this.redis.del(`whatsapp:starting:${tenantId}`);
     }
@@ -281,5 +375,58 @@ export class SessionManager {
      */
     getActiveSessions(): string[] {
         return Array.from(this.sessions.keys());
+    }
+
+    /**
+     * Request pairing code for phone number based linking (bypasses QR blocking)
+     * This method is used when QR code generation is blocked by WhatsApp on cloud IPs
+     */
+    async requestPairingCode(tenantId: string, phoneNumber: string): Promise<string | null> {
+        const sock = this.sessions.get(tenantId);
+        if (!sock) {
+            logger.warn({ tenantId }, 'No active socket for pairing code request - starting session first');
+            // Auto-start session for pairing code
+            await this.startSession(tenantId, true);
+            // Wait a bit for socket to initialize
+            await new Promise(r => setTimeout(r, 3000));
+            const newSock = this.sessions.get(tenantId);
+            if (!newSock) {
+                logger.error({ tenantId }, 'Failed to get socket after session start');
+                return null;
+            }
+            return this.doRequestPairingCode(tenantId, phoneNumber, newSock);
+        }
+
+        return this.doRequestPairingCode(tenantId, phoneNumber, sock);
+    }
+
+    private async doRequestPairingCode(tenantId: string, phoneNumber: string, sock: WASocket): Promise<string | null> {
+        try {
+            // Phone number should be in format: country code + number without + or spaces
+            const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+            logger.info({ tenantId, phoneNumber: cleanPhone }, 'Requesting pairing code from WhatsApp...');
+
+            // Wait for socket to be in connecting state before requesting pairing code
+            await new Promise(r => setTimeout(r, 2000));
+
+            const pairingCode = await (sock as any).requestPairingCode(cleanPhone);
+            logger.info({ tenantId, pairingCode }, 'Pairing code generated successfully');
+
+            // Store pairing code in Redis for frontend to retrieve
+            await this.redis.set(`whatsapp:pairingCode:${tenantId}`, pairingCode, 'EX', 120);
+            await this.redis.set(`whatsapp:status:${tenantId}`, 'PAIRING_CODE_READY');
+
+            return pairingCode;
+        } catch (err) {
+            logger.error({ tenantId, err }, 'Failed to request pairing code');
+            return null;
+        }
+    }
+
+    /**
+     * Get pairing code from Redis
+     */
+    async getPairingCode(tenantId: string): Promise<string | null> {
+        return await this.redis.get(`whatsapp:pairingCode:${tenantId}`);
     }
 }

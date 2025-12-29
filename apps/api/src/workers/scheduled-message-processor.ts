@@ -33,10 +33,62 @@ export class ScheduledMessageProcessor {
     /**
      * Start the polling worker
      */
+    /**
+     * Clean up old sent/failed messages (retention: 30 days)
+     * Run daily to prevent database bloat
+     */
+    async cleanupOldMessages(): Promise<void> {
+        try {
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+            const result = await (this.prisma as PrismaAny).scheduledMessage.deleteMany({
+                where: {
+                    status: {
+                        in: ['SENT', 'FAILED']
+                    },
+                    updatedAt: {
+                        lt: thirtyDaysAgo
+                    }
+                }
+            });
+
+            if (result.count > 0) {
+                logger.info({ deletedCount: result.count }, 'Cleaned up old scheduled messages');
+            }
+        } catch (err) {
+            logger.error({ err }, 'Failed to cleanup old scheduled messages');
+        }
+    }
+
     start(): void {
         if (this.intervalId) return;
 
         logger.info('Scheduled message processor started');
+
+        // Schedule daily cleanup at 2 AM
+        const scheduleCleanup = () => {
+            const now = new Date();
+            const next2AM = new Date();
+            next2AM.setHours(2, 0, 0, 0);
+
+            // If past 2 AM today, schedule for tomorrow
+            if (now.getHours() >= 2) {
+                next2AM.setDate(next2AM.getDate() + 1);
+            }
+
+            const msUntil2AM = next2AM.getTime() - now.getTime();
+
+            setTimeout(() => {
+                this.cleanupOldMessages();
+                // Repeat daily
+                setInterval(() => this.cleanupOldMessages(), 24 * 60 * 60 * 1000);
+            }, msUntil2AM);
+
+            logger.info({ nextCleanup: next2AM.toISOString() }, 'Scheduled message cleanup scheduled');
+        };
+
+        scheduleCleanup();
 
         // Initial run
         this.processPendingMessages();

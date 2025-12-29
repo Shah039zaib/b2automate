@@ -19,8 +19,18 @@ export interface InboundEventPayload {
     data: any;
 }
 
-export interface WorkerCommandPayload {
-    type: 'START_SESSION' | 'STOP_SESSION';
-    tenantId: string;
-    forceNew?: boolean;  // If true, clears existing auth state before starting session
-}
+export type WorkerCommandPayload =
+    | {
+        type: 'START_SESSION';
+        tenantId: string;
+        forceNew?: boolean;  // If true, clears existing auth state before starting session
+    }
+    | {
+        type: 'STOP_SESSION';
+        tenantId: string;
+    }
+    | {
+        type: 'REQUEST_PAIRING_CODE';
+        tenantId: string;
+        phoneNumber: string;  // Phone number for pairing code generation
+    };

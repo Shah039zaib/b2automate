@@ -35,6 +35,31 @@ export class WhatsAppService {
     async getStatus(tenantId: string) {
         const status = await this.redis.get(`whatsapp:status:${tenantId}`) || 'DISCONNECTED';
         const qr = await this.redis.get(`whatsapp:qr:${tenantId}`);
-        return { status, qr };
+        const pairingCode = await this.redis.get(`whatsapp:pairingCode:${tenantId}`);
+        return { status, qr, pairingCode };
+    }
+
+    async requestPairingCode(tenantId: string, phoneNumber: string) {
+        // Validate phone number format
+        const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+
+        if (cleanPhone.length < 10) {
+            throw new Error('Phone number must be at least 10 digits');
+        }
+
+        if (cleanPhone.length > 15) {
+            throw new Error('Phone number must not exceed 15 digits');
+        }
+
+        logger.info({ tenantId, phoneNumber: cleanPhone }, 'Requesting pairing code');
+        await this.redis.set(`whatsapp:status:${tenantId}`, 'REQUESTING_PAIRING_CODE');
+
+        await this.commandQueue.add('request-pairing-code', {
+            type: 'REQUEST_PAIRING_CODE',
+            tenantId,
+            phoneNumber: cleanPhone
+        });
+
+        return { status: 'REQUESTED', message: 'Pairing code request sent' };
     }
 }

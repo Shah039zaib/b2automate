@@ -266,6 +266,7 @@ export const ordersApi = {
 export interface WhatsAppStatus {
     status: string;
     qr: string | null;
+    pairingCode?: string | null;
 }
 
 export const whatsappApi = {
@@ -277,6 +278,9 @@ export const whatsappApi = {
 
     stopSession: () =>
         api.post<{ status: string }>('/whatsapp/session/stop'),
+
+    requestPairingCode: (phoneNumber: string) =>
+        api.post<{ status: string; message: string }>('/whatsapp/session/pairing-code', { phoneNumber }),
 };
 
 // ============================================

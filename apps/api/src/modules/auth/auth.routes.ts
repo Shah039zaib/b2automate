@@ -156,7 +156,37 @@ export async function authRoutes(app: FastifyInstance) {
                 expiresIn: 900               // 15 minutes in seconds
             };
         } catch (error: unknown) {
-            // Audit Log Login Failure (if we could identify tenant)
+            // SECURITY: Audit Log Login Failure with tenant context
+            // Even on failure, query user by email to get tenantId for audit trail
+            try {
+                const user = await prisma.user.findUnique({
+                    where: { email },
+                    select: { id: true, tenantId: true }
+                });
+
+                if (user) {
+                    // User exists but password was wrong - log as failed login
+                    await auditLogger.log({
+                        tenantId: user.tenantId,
+                        actorUserId: user.id,
+                        eventType: 'LOGIN_FAILED',
+                        ipAddress: req.ip,
+                        metadata: {
+                            email,
+                            reason: 'Invalid credentials'
+                        }
+                    });
+
+                    req.log.warn({ email, userId: user.id, ip: req.ip }, 'Failed login attempt - invalid password');
+                } else {
+                    // User doesn't exist - log as failed attempt without tenant context
+                    req.log.warn({ email, ip: req.ip }, 'Failed login attempt - user not found');
+                }
+            } catch (auditError) {
+                // Don't fail the request if audit logging fails
+                req.log.error({ email, error: auditError }, 'Failed to log failed login attempt');
+            }
+
             return reply.code(401).send({ error: 'Invalid credentials' });
         }
     });
